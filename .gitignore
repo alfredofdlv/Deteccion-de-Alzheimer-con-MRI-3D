@@ -1,2 +1,96 @@
-/.venv
-/data
+# ==============================================================================
+# TFG - Detección Temprana de Alzheimer
+# .gitignore — Protección de datos médicos y limpieza del repositorio
+# ==============================================================================
+
+# ========================
+# 🔒 DATOS MÉDICOS (CRÍTICO)
+# ========================
+# NUNCA subir datos de pacientes a un repositorio público/privado.
+# Formatos de neuroimagen
+*.nii
+*.nii.gz
+*.dcm
+*.dicom
+*.mgz
+*.mgh
+*.mnc
+*.hdr
+*.img
+
+# Carpetas de datos completas
+data/raw/
+data/processed/
+data/splits/
+
+# Archivos grandes genéricos
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.tar
+*.tar.gz
+*.zip
+
+# ========================
+# 🐍 Python
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# ========================
+# 📦 Entornos virtuales
+# ========================
+venv/
+env/
+.env/
+.venv/
+ENV/
+conda-env/
+
+# ========================
+# 📓 Jupyter Notebooks
+# ========================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ========================
+# 🧠 Pesos de modelos y logs
+# ========================
+outputs/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+wandb/
+mlruns/
+lightning_logs/
+
+# ========================
+# 💻 IDE y Sistema
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========================
+# 📋 Miscelánea
+# ========================
+*.log
+*.tmp
+*.bak
+*.cache
+.pytest_cache/
+.mypy_cache/
