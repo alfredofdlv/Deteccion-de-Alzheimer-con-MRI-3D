@@ -3,8 +3,8 @@ data_utils.py — Utilidades para carga de datos y gestión de rutas.
 
 Funciones auxiliares para:
 - Leer CSVs de particiones (train/val/test).
-- Construir rutas absolutas a los archivos .nii.gz.
-- Verificar la integridad de los datos descargados.
+- Construir rutas absolutas a los archivos ANALYZE (.img/.hdr).
+- Verificar la integridad de los datos procesados.
 
 Uso:
     from src.data_utils import load_split, verify_data_integrity
@@ -26,7 +26,7 @@ def load_split(split_name: str) -> pd.DataFrame:
         split_name: Nombre del split sin extensión (ej. 'train', 'val', 'test').
 
     Returns:
-        DataFrame con columnas esperadas: ['subject_id', 'filepath', 'label'].
+        DataFrame con columnas esperadas: ['subject_id', 'image_path', 'label'].
 
     Raises:
         FileNotFoundError: Si el CSV no existe.
@@ -35,48 +35,51 @@ def load_split(split_name: str) -> pd.DataFrame:
     if not csv_path.exists():
         raise FileNotFoundError(
             f"No se encontró el archivo de split: {csv_path}\n"
-            f"Asegúrate de haber generado las particiones primero."
+            f"Asegúrate de haber ejecutado: python -m src.data_prepare"
         )
     df = pd.read_csv(csv_path)
     return df
 
 
-def build_nifti_path(subject_id: str) -> Path:
+def build_image_path(subject_id: str) -> Path:
     """
-    Construye la ruta absoluta a un archivo .nii.gz dado un subject_id de OASIS.
+    Construye la ruta absoluta al archivo .img procesado de un sujeto OASIS.
 
     Args:
         subject_id: Identificador del sujeto OASIS (ej. 'OAS1_0001_MR1').
 
     Returns:
-        Path al archivo NIfTI.
+        Path al archivo ANALYZE (.img) en data/processed/images/.
     """
-    # Patrón típico de OASIS-1: data/raw/{subject_id}/{subject_id}_mpr-1_anon.nii.gz
-    # Ajustar según la estructura real del dataset descargado.
-    nifti_path = cfg.DATA_RAW_DIR / subject_id
-    return nifti_path
+    return cfg.PROCESSED_IMAGES_DIR / f"{subject_id}.img"
 
 
 def list_available_subjects() -> List[str]:
     """
-    Lista todos los sujetos disponibles en data/raw/.
+    Lista todos los sujetos disponibles en data/processed/images/.
 
     Returns:
-        Lista de nombres de carpetas/archivos en data/raw/.
+        Lista de subject_ids (sin extensión) de los .img procesados.
     """
-    if not cfg.DATA_RAW_DIR.exists():
+    if not cfg.PROCESSED_IMAGES_DIR.exists():
         return []
-    return sorted([p.name for p in cfg.DATA_RAW_DIR.iterdir()])
+    return sorted([p.stem for p in cfg.PROCESSED_IMAGES_DIR.glob("*.img")])
 
 
 def verify_data_integrity() -> Tuple[int, List[str]]:
     """
-    Verifica cuántos archivos .nii.gz hay disponibles en data/raw/.
+    Verifica cuántos pares .img/.hdr válidos hay en data/processed/images/.
 
     Returns:
-        Tupla con (número de archivos encontrados, lista de rutas).
+        Tupla con (número de pares completos, lista de subject_ids con par).
     """
-    nifti_files = list(cfg.DATA_RAW_DIR.rglob("*.nii.gz"))
-    file_paths = [str(f) for f in sorted(nifti_files)]
-    return len(nifti_files), file_paths
+    if not cfg.PROCESSED_IMAGES_DIR.exists():
+        return 0, []
+
+    img_files = {p.stem for p in cfg.PROCESSED_IMAGES_DIR.glob("*.img")}
+    hdr_files = {p.stem for p in cfg.PROCESSED_IMAGES_DIR.glob("*.hdr")}
+
+    # Solo contar pares completos (.img + .hdr)
+    complete_pairs = sorted(img_files & hdr_files)
+    return len(complete_pairs), complete_pairs
 

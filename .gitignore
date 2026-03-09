@@ -22,6 +22,7 @@
 data/raw/
 data/processed/
 data/splits/
+data/OASIS-1/
 
 # Archivos grandes genéricos
 *.h5

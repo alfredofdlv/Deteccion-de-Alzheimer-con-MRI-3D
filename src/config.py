@@ -35,6 +35,21 @@ class ProjectConfig:
     OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs"
 
     # ========================
+    # Rutas específicas OASIS-1
+    # ========================
+    OASIS_RAW_DIR: Path = DATA_DIR / "OASIS-1" / "raw"
+    OASIS_CLINICAL_FILE: Path = OASIS_RAW_DIR / "oasis_cross-sectional-5708aa0a98d82080.xlsx"
+    PROCESSED_IMAGES_DIR: Path = DATA_PROCESSED_DIR / "images"
+    MASTER_CSV_PATH: Path = DATA_PROCESSED_DIR / "dataset_master.csv"
+
+    # ========================
+    # Ratios de partición
+    # ========================
+    TRAIN_RATIO: float = 0.70
+    VAL_RATIO: float = 0.15
+    TEST_RATIO: float = 0.15
+
+    # ========================
     # Parámetros de imagen 3D
     # ========================
     # Tamaño objetivo para las MRI 3D tras preprocesamiento.
@@ -49,27 +64,32 @@ class ProjectConfig:
     NUM_WORKERS: int = 2         # DataLoader workers (ajustar según CPU)
     LEARNING_RATE: float = 1e-4
     NUM_EPOCHS: int = 50
+    EARLY_STOPPING_PATIENCE: int = 10  # Epochs sin mejora en val_loss antes de parar
 
     # ========================
     # Clases del dataset OASIS-1
     # ========================
     # CDR (Clinical Dementia Rating):
-    #   0   = Sin demencia
-    #   0.5 = Demencia muy leve
-    #   1   = Demencia leve
-    #   2   = Demencia moderada
-    NUM_CLASSES: int = 2  # Binario: sano vs. demencia (simplificación inicial)
-    CLASS_LABELS: dict = {0: "CN (Cognitively Normal)", 1: "AD (Alzheimer's Disease)"}
+    #   0   = Sin demencia          -> Clase 0 (CN)
+    #   0.5 = Demencia muy leve     -> Clase 1 (MCI)
+    #   1+  = Demencia leve/mod.    -> Clase 2 (AD)
+    NUM_CLASSES: int = 3
+    CLASS_LABELS: dict = {
+        0: "CN (Cognitively Normal)",
+        1: "MCI (Mild Cognitive Impairment)",
+        2: "AD (Alzheimer's Disease)",
+    }
 
     def __repr__(self) -> str:
         return (
             f"ProjectConfig(\n"
-            f"  RANDOM_SEED    = {self.RANDOM_SEED}\n"
-            f"  IMAGE_SIZE     = {self.IMAGE_SIZE}\n"
-            f"  BATCH_SIZE     = {self.BATCH_SIZE}\n"
-            f"  NUM_CLASSES    = {self.NUM_CLASSES}\n"
-            f"  DATA_RAW_DIR   = {self.DATA_RAW_DIR}\n"
-            f"  OUTPUTS_DIR    = {self.OUTPUTS_DIR}\n"
+            f"  RANDOM_SEED         = {self.RANDOM_SEED}\n"
+            f"  IMAGE_SIZE          = {self.IMAGE_SIZE}\n"
+            f"  BATCH_SIZE          = {self.BATCH_SIZE}\n"
+            f"  NUM_CLASSES         = {self.NUM_CLASSES}\n"
+            f"  OASIS_RAW_DIR       = {self.OASIS_RAW_DIR}\n"
+            f"  PROCESSED_IMAGES_DIR= {self.PROCESSED_IMAGES_DIR}\n"
+            f"  OUTPUTS_DIR         = {self.OUTPUTS_DIR}\n"
             f")"
         )
 
