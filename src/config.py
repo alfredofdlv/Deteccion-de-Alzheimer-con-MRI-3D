@@ -63,6 +63,7 @@ class ProjectConfig:
     BATCH_SIZE: int = 4          # Conservador para GPUs con poca VRAM
     NUM_WORKERS: int = 2         # DataLoader workers (ajustar según CPU)
     LEARNING_RATE: float = 1e-4
+    WEIGHT_DECAY: float = 1e-4         # Regularización L2 (penalización sobre norma de pesos)
     NUM_EPOCHS: int = 50
     EARLY_STOPPING_PATIENCE: int = 10  # Epochs sin mejora en val_loss antes de parar
 

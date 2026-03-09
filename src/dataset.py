@@ -4,9 +4,12 @@ dataset.py — Dataset MONAI y DataLoaders para MRI 3D (OASIS-1).
 Proporciona el pipeline de transforms y los DataLoaders listos para
 alimentar el modelo con tensores de forma (B, 1, 96, 96, 96).
 
-Pipeline de transforms:
+Pipeline de transforms (base):
     LoadImaged -> EnsureChannelFirstd -> Orientationd(RAS)
     -> ScaleIntensityRangePercentilesd -> Resized(96, 96, 96)
+
+Data augmentation (solo train):
+    -> RandFlipd (eje 0) -> RandRotated -> RandGaussianNoised -> RandShiftIntensityd
 
 Uso:
     from src.dataset import get_dataloader
@@ -27,6 +30,10 @@ from monai.transforms import (
     EnsureChannelFirstd,
     LoadImaged,
     Orientationd,
+    RandFlipd,
+    RandGaussianNoised,
+    RandRotated,
+    RandShiftIntensityd,
     Resized,
     ScaleIntensityRangePercentilesd,
 )
@@ -43,7 +50,7 @@ def get_transforms(split: str = "train") -> Compose:
     """
     Construye el pipeline de MONAI transforms para un split dado.
 
-    Pasos:
+    Pasos base (todos los splits):
         1. LoadImaged        — Carga el par .img/.hdr (formato ANALYZE).
         2. EnsureChannelFirstd — Añade dimensión de canal: (D,H,W) -> (1,D,H,W).
         3. Orientationd       — Reorienta a RAS (Right-Anterior-Superior).
@@ -51,15 +58,19 @@ def get_transforms(split: str = "train") -> Compose:
            usando percentiles 1-99 para robustez ante outliers.
         5. Resized            — Redimensiona a IMAGE_SIZE (96, 96, 96).
 
+    Data augmentation (solo train):
+        6. RandFlipd          — Flip aleatorio en eje LR (prob=0.5).
+        7. RandRotated        — Rotación aleatoria en 3D (rango 0.2 rad, prob=0.3).
+        8. RandGaussianNoised — Ruido gaussiano suave (prob=0.3, std=0.05).
+        9. RandShiftIntensityd— Variación de intensidad (offsets=0.1, prob=0.3).
+
     Args:
         split: Nombre del split ('train', 'val', 'test').
-              En Sprint 2 todas las transforms son iguales.
-              La data augmentation para 'train' se añadirá en Sprint 4.
 
     Returns:
         Compose con el pipeline de transforms.
     """
-    return Compose([
+    transforms = [
         LoadImaged(keys=["image"], image_only=True),
         EnsureChannelFirstd(keys=["image"]),
         Orientationd(keys=["image"], axcodes="RAS"),
@@ -72,7 +83,59 @@ def get_transforms(split: str = "train") -> Compose:
             clip=True,
         ),
         Resized(keys=["image"], spatial_size=cfg.IMAGE_SIZE),
-    ])
+    ]
+
+    if split == "train":
+        transforms.extend([
+            RandFlipd(keys=["image"], prob=0.5, spatial_axis=0),
+            RandRotated(keys=["image"], range_x=0.2, range_y=0.2, range_z=0.2, prob=0.3),
+            RandGaussianNoised(keys=["image"], prob=0.3, mean=0.0, std=0.05),
+            RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.3),
+        ])
+
+    return Compose(transforms)
+
+
+def describe_transforms(split: str = "train") -> str:
+    """
+    Devuelve una descripción legible del pipeline de transforms para un split.
+
+    Útil para guardar en cada run qué preprocesamiento y augmentation se aplicó.
+    """
+    lines = [
+        f"Pipeline de transforms para split: '{split}'",
+        "=" * 55,
+        "",
+        "--- Preprocesamiento (determinístico, todos los splits) ---",
+        f"  1. LoadImaged           keys=['image'], image_only=True",
+        f"  2. EnsureChannelFirstd  keys=['image']",
+        f"  3. Orientationd         keys=['image'], axcodes='RAS'",
+        f"  4. ScaleIntensityRangePercentilesd",
+        f"       keys=['image'], lower=1, upper=99",
+        f"       b_min=0.0, b_max=1.0, clip=True",
+        f"  5. Resized              keys=['image'], spatial_size={cfg.IMAGE_SIZE}",
+    ]
+
+    if split == "train":
+        lines += [
+            "",
+            "--- Data Augmentation (estocástico, solo train) ---",
+            f"  6. RandFlipd            keys=['image'], prob=0.5, spatial_axis=0",
+            f"  7. RandRotated          keys=['image'], range_xyz=0.2, prob=0.3",
+            f"  8. RandGaussianNoised   keys=['image'], prob=0.3, mean=0.0, std=0.05",
+            f"  9. RandShiftIntensityd  keys=['image'], offsets=0.1, prob=0.3",
+            "",
+            "Nota: las transforms Rand* se aplican on-the-fly en cada epoch.",
+            "Cada imagen puede recibir combinaciones distintas cada vez.",
+        ]
+    else:
+        lines += [
+            "",
+            "--- Sin Data Augmentation ---",
+            f"  (split='{split}': solo preprocesamiento determinístico)",
+        ]
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

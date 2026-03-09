@@ -19,8 +19,14 @@ from __future__ import annotations
 
 import csv
 import time
-from datetime import datetime
+import warnings
+from datetime import datetime, timedelta
 from pathlib import Path
+
+# Silenciar warnings repetitivos de ITK/C++ sobre archivos Analyze
+import itk
+itk.ProcessObject.SetGlobalWarningDisplay(False)
+warnings.filterwarnings("ignore", message=".*pin_memory.*")
 
 import matplotlib
 matplotlib.use("Agg")
@@ -31,7 +37,7 @@ import torch.nn as nn
 
 from src.config import cfg
 from src.data_utils import load_split
-from src.dataset import get_dataloader
+from src.dataset import describe_transforms, get_dataloader
 from src.model import Simple3DCNN
 
 
@@ -217,6 +223,7 @@ def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
         f"Parametros:         {n_params:,}",
         f"Class weights:      {class_weights}",
         f"Learning rate:      {cfg.LEARNING_RATE}",
+        f"Weight decay (L2):  {cfg.WEIGHT_DECAY}",
         f"Batch size:         {cfg.BATCH_SIZE}",
         f"Image size:         {cfg.IMAGE_SIZE}",
         f"Epochs:             {len(history)}",
@@ -280,7 +287,9 @@ def train(
 
     class_weights = compute_class_weights().to(device)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY,
+    )
 
     # ── Overfit-one-batch mode ───────────────────────────────────────────
     if overfit_one_batch:
@@ -327,6 +336,12 @@ def train(
 
     early_stopper = EarlyStopping(patience=patience)
 
+    # Guardar ficha de transforms usadas en este run
+    transforms_desc = describe_transforms("train")
+    (run_dir / "transforms_config.txt").write_text(
+        transforms_desc + "\n", encoding="utf-8",
+    )
+
     print("\n" + "=" * 60)
     print(f"ENTRENAMIENTO — max {num_epochs} epochs (early stopping: patience={patience})")
     print(f"Resultados en: {run_dir}")
@@ -372,7 +387,6 @@ def train(
         csv_writer.writerow(row)
         csv_file.flush()
 
-        best_tag = ""
         if is_best:
             best_val_loss = val_metrics["loss"]
             best_epoch = epoch
@@ -383,19 +397,36 @@ def train(
                 "val_loss": best_val_loss,
                 "val_accuracy": val_metrics["accuracy"],
             }, run_dir / "best_model.pth")
-            best_tag = "  *best*"
+
+        should_stop = early_stopper.step(val_metrics["loss"])
+
+        # -- Logging informativo --
+        elapsed_total_so_far = time.time() - t_start
+        avg_epoch_time = elapsed_total_so_far / epoch
+        remaining_epochs = num_epochs - epoch
+        eta_seconds = avg_epoch_time * remaining_epochs
+        eta_str = str(timedelta(seconds=int(eta_seconds)))
+        elapsed_str = str(timedelta(seconds=int(elapsed_total_so_far)))
+
+        best_marker = " << BEST" if is_best else ""
+        es_counter = early_stopper.counter
+        es_bar = f"[{'#' * es_counter}{'.' * (patience - es_counter)}]"
 
         print(
-            f"Epoch {epoch:3d}/{num_epochs} ({elapsed:.0f}s) — "
-            f"Train Loss: {train_metrics['loss']:.4f}  Acc: {train_metrics['accuracy']:.2%}  |  "
-            f"Val Loss: {val_metrics['loss']:.4f}  Acc: {val_metrics['accuracy']:.2%}"
-            f"{best_tag}"
+            f"\n--- Epoch {epoch}/{num_epochs} "
+            f"({elapsed:.0f}s | total: {elapsed_str} | ETA: {eta_str}) ---\n"
+            f"  Train  ->  Loss: {train_metrics['loss']:.4f}  |  Acc: {train_metrics['accuracy']:.2%}\n"
+            f"  Val    ->  Loss: {val_metrics['loss']:.4f}  |  Acc: {val_metrics['accuracy']:.2%}{best_marker}\n"
+            f"  Best: epoch {best_epoch} (val_loss={best_val_loss:.4f})  "
+            f"| Early stop: {es_bar} {es_counter}/{patience}"
         )
 
-        if early_stopper.step(val_metrics["loss"]):
+        if should_stop:
             print(
-                f"\n[EARLY STOPPING] Val loss no mejoro en {patience} epochs. "
-                f"Mejor epoch: {best_epoch} (val_loss={best_val_loss:.4f})"
+                f"\n{'=' * 60}\n"
+                f"[EARLY STOPPING] Val loss no mejoro en {patience} epochs.\n"
+                f"Mejor epoch: {best_epoch} (val_loss={best_val_loss:.4f})\n"
+                f"{'=' * 60}"
             )
             break
 
@@ -407,6 +438,8 @@ def train(
     _save_summary(
         history, run_dir, device, n_params, elapsed_total,
         class_weights.cpu().tolist(),
+        early_stopped=early_stopper.triggered,
+        patience=patience,
     )
     print(f"\nArchivos generados:")
     for f in sorted(run_dir.iterdir()):
@@ -428,6 +461,13 @@ if __name__ == "__main__":
                         help="Modo overfit-one-batch (sanity check)")
     parser.add_argument("--run", type=str, default=None,
                         help="Nombre de la carpeta de resultados (default: run_TIMESTAMP)")
+    parser.add_argument("--patience", type=int, default=cfg.EARLY_STOPPING_PATIENCE,
+                        help=f"Early stopping patience (default: {cfg.EARLY_STOPPING_PATIENCE})")
     args = parser.parse_args()
 
-    train(num_epochs=args.epochs, overfit_one_batch=args.overfit, run_name=args.run)
+    train(
+        num_epochs=args.epochs,
+        overfit_one_batch=args.overfit,
+        run_name=args.run,
+        patience=args.patience,
+    )
