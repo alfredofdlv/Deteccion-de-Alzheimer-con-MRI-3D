@@ -65,7 +65,7 @@ class ProjectConfig:
     LEARNING_RATE: float = 1e-4
     WEIGHT_DECAY: float = 1e-4         # Regularización L2 (penalización sobre norma de pesos)
     NUM_EPOCHS: int = 50
-    EARLY_STOPPING_PATIENCE: int = 30  # Epochs sin mejora en val_loss antes de parar
+    EARLY_STOPPING_PATIENCE: int = 25  # Epochs sin mejora en val_loss antes de parar
 
     # ========================
     # Clases del dataset OASIS-1
