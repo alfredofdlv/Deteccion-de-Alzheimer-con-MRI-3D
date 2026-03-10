@@ -286,7 +286,7 @@ def train(
     print(f"[INFO] Parametros entrenables: {n_params:,}")
 
     class_weights = compute_class_weights().to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    criterion = nn.CrossEntropyLoss(weight=class_weights,label_smoothing=0.1)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY,
     )
