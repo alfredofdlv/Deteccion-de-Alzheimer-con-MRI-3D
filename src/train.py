@@ -290,6 +290,9 @@ def train(
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY,
     )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=5,
+    )
 
     # ── Overfit-one-batch mode ───────────────────────────────────────────
     if overfit_one_batch:
@@ -394,11 +397,13 @@ def train(
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "val_loss": best_val_loss,
                 "val_accuracy": val_metrics["accuracy"],
             }, run_dir / "best_model.pth")
 
         should_stop = early_stopper.step(val_metrics["loss"])
+        scheduler.step(val_metrics["loss"])
 
         # -- Logging informativo --
         elapsed_total_so_far = time.time() - t_start
@@ -411,13 +416,14 @@ def train(
         best_marker = " << BEST" if is_best else ""
         es_counter = early_stopper.counter
         es_bar = f"[{'#' * es_counter}{'.' * (patience - es_counter)}]"
+        current_lr = optimizer.param_groups[0]["lr"]
 
         print(
             f"\n--- Epoch {epoch}/{num_epochs} "
             f"({elapsed:.0f}s | total: {elapsed_str} | ETA: {eta_str}) ---\n"
             f"  Train  ->  Loss: {train_metrics['loss']:.4f}  |  Acc: {train_metrics['accuracy']:.2%}\n"
             f"  Val    ->  Loss: {val_metrics['loss']:.4f}  |  Acc: {val_metrics['accuracy']:.2%}{best_marker}\n"
-            f"  Best: epoch {best_epoch} (val_loss={best_val_loss:.4f})  "
+            f"  LR: {current_lr:.2e}  |  Best: epoch {best_epoch} (val_loss={best_val_loss:.4f})  "
             f"| Early stop: {es_bar} {es_counter}/{patience}"
         )
 
