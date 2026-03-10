@@ -4,9 +4,15 @@
 
 ## Descripción
 
-Este proyecto implementa un sistema de **detección temprana de la enfermedad de Alzheimer** a partir de imágenes de Resonancia Magnética (MRI) 3D, utilizando técnicas de Deep Learning.
+Sistema de **detección temprana de la enfermedad de Alzheimer** a partir de imágenes de Resonancia Magnética (MRI) 3D, utilizando técnicas de Deep Learning.
 
-Se emplean **redes neuronales convolucionales 3D** (3D CNNs) entrenadas sobre el dataset [OASIS-1](https://www.oasis-brains.org/) para clasificar sujetos como cognitivamente normales (CN) o con enfermedad de Alzheimer (AD).
+Se emplea una **red neuronal convolucional 3D** (Simple3DCNN) entrenada sobre el dataset [OASIS-1](https://www.oasis-brains.org/) para clasificar sujetos en tres categorías:
+
+| Clase | CDR | Descripción |
+|-------|-----|-------------|
+| CN | 0 | Cognitivamente Normal |
+| MCI | 0.5 | Deterioro Cognitivo Leve |
+| AD | >= 1 | Enfermedad de Alzheimer |
 
 ### Stack Tecnológico
 
@@ -22,19 +28,24 @@ Se emplean **redes neuronales convolucionales 3D** (3D CNNs) entrenadas sobre el
 
 ```
 tfg/
-├── data/
-│   ├── raw/            # Archivos .nii.gz originales (OASIS-1)
-│   ├── processed/      # Datos preprocesados / tensores
-│   └── splits/         # CSVs de particiones train/val/test
-├── notebooks/          # Jupyter notebooks de exploración
 ├── src/
-│   ├── __init__.py
-│   ├── config.py       # Configuración centralizada
-│   └── data_utils.py   # Utilidades de carga de datos
-├── outputs/            # Logs, pesos (.pth), métricas
-├── .gitignore
+│   ├── config.py         # Configuración centralizada
+│   ├── data_prepare.py   # ETL: extracción, CSV maestro, splits
+│   ├── data_utils.py     # Utilidades de carga
+│   ├── dataset.py        # MONAI Dataset y transforms
+│   ├── model.py          # Simple3DCNN
+│   ├── train.py          # Training loop
+│   └── evaluate.py       # Evaluación y métricas
+├── notebooks/            # Jupyter notebooks de exploración
+├── Docs/                 # Documentación interna
+│   ├── Context.md        # Fuente de verdad del proyecto
+│   ├── Analisis_Proyecto.md
+│   └── Roadmap.md
+├── outputs/              # Logs, pesos (.pth), gráficas por experimento
+├── data/                 # Datos (no versionados)
+├── run_pipeline.py       # Pipeline CLI: train -> evaluate
 ├── requirements.txt
-└── README.md
+└── .cursor/rules/        # Reglas para agentes AI
 ```
 
 ## Setup
@@ -49,45 +60,70 @@ cd tfg
 ### 2. Crear entorno virtual e instalar dependencias
 
 ```bash
-python -m venv venv
-source venv/bin/activate        # Linux/Mac
-# venv\Scripts\activate         # Windows
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # Linux/Mac
 
 pip install -r requirements.txt
 ```
 
 ### 3. Descargar y colocar los datos de OASIS-1
 
-> ⚠️ **IMPORTANTE**: Los datos médicos NO se incluyen en el repositorio por razones de privacidad y tamaño.
+> **IMPORTANTE**: Los datos médicos NO se incluyen en el repositorio por razones de privacidad y tamaño.
 
 1. Solicita acceso al dataset en [OASIS Brains](https://www.oasis-brains.org/).
-2. Descarga los archivos MRI del dataset **OASIS-1**.
-3. Coloca los archivos `.nii.gz` en la carpeta `data/raw/`.
+2. Descarga los archivos del dataset **OASIS-1**.
+3. Coloca los `.tar.gz` (o carpetas extraídas) en `data/OASIS-1/raw/`.
 
-```
-data/
-└── raw/
-    ├── OAS1_0001_MR1/
-    │   └── OAS1_0001_MR1_mpr-1_anon.nii.gz
-    ├── OAS1_0002_MR1/
-    │   └── ...
-    └── ...
+### 4. Ejecutar el pipeline ETL
+
+```bash
+python -m src.data_prepare
 ```
 
-### 4. Verificar la instalación
+Esto extrae las imágenes `masked_gfc`, genera el CSV maestro y crea los splits train/val/test.
 
-Abre el notebook `notebooks/00_environment_setup.ipynb` y ejecuta todas las celdas para comprobar que el entorno está correctamente configurado.
+### 5. Verificar el entorno
 
-## Uso en Google Colab
-
-Para ejecutar en Colab, monta tu Google Drive y ajusta las rutas en `src/config.py`:
-
-```python
-from google.colab import drive
-drive.mount('/content/drive')
+```bash
+python -m src.model     # Verifica que el modelo compila
 ```
+
+## Uso
+
+### Entrenamiento
+
+```bash
+python -m src.train --epochs 50 --run mi_experimento --patience 25
+```
+
+### Evaluación
+
+```bash
+python -m src.evaluate --run mi_experimento --split test
+```
+
+### Pipeline completo
+
+```bash
+python run_pipeline.py mi_experimento
+```
+
+### Sanity check (overfit one batch)
+
+```bash
+python -m src.train --overfit
+```
+
+## Estado actual
+
+- Sprints 1-3 completados (datos, pipeline, modelo baseline)
+- Sprint 4 en progreso (augmentation, métricas, experimentos de regularización)
+- Sprint 5 pendiente (Grad-CAM / Explainability)
+- Mejor test accuracy: ~56%, macro F1: ~0.43
+
+Ver `Docs/Context.md` para el estado detallado y `DIARIO.md` para el historial de experimentos.
 
 ## Licencia
 
-Este proyecto es parte de un Trabajo de Fin de Grado con fines académicos.
-
+Proyecto académico (TFG). Uso con fines educativos y de investigación.

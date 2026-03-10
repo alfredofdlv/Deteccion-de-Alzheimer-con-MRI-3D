@@ -4,6 +4,7 @@ run_pipeline.py — Ejecuta la pipeline completa: entrenar, evaluar y exportar.
 Uso:
     python run_pipeline.py mi-experimento
     python run_pipeline.py mi-experimento --epochs 80 --patience 30
+    python run_pipeline.py mi-experimento --no-export
 """
 
 import argparse
@@ -43,6 +44,10 @@ def main():
         "--patience", type=int, default=None,
         help="Early stopping patience (default: el de config.py)",
     )
+    parser.add_argument(
+        "--no-export", action="store_true",
+        help="Omitir la exportación del Markdown de contexto",
+    )
     args = parser.parse_args()
 
     py = sys.executable
@@ -59,18 +64,25 @@ def main():
     eval_cmd = [py, "-m", "src.evaluate", "--run", args.name]
     run_step("PASO 2/3 — Evaluación (test set)", eval_cmd)
 
-    # 3. Exportar contexto
-    export_cmd = [
-        py, "export_context.py",
-        "--run", args.name,
-        "-o", f"{args.name}.md",
-    ]
-    run_step("PASO 3/3 — Exportar Markdown", export_cmd)
+    # 3. Exportar contexto (opcional)
+    md_path = f"outputs/{args.name}/{args.name}.md"
+    if not args.no_export:
+        export_cmd = [
+            py, "export_context.py",
+            "--run", args.name,
+            "-o", md_path,
+        ]
+        run_step("PASO 3/3 — Exportar Markdown", export_cmd)
+    else:
+        print(f"\n{'=' * 60}")
+        print(f"  PASO 3/3 — Exportar Markdown (omitido: --no-export)")
+        print(f"{'=' * 60}\n")
 
     print(f"\n{'=' * 60}")
     print(f"  Pipeline completada para '{args.name}'")
     print(f"  Resultados en: outputs/{args.name}/")
-    print(f"  Markdown en:   {args.name}.md")
+    if not args.no_export:
+        print(f"  Markdown en:   {md_path}")
     print(f"{'=' * 60}\n")
 
 
