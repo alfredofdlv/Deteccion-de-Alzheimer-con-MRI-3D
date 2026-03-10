@@ -5,7 +5,7 @@ Genera automáticamente en outputs/<run_name>/:
     - training_log.csv       — métricas por epoch
     - curves_loss.png        — gráfica de loss (train vs val)
     - curves_accuracy.png    — gráfica de accuracy (train vs val)
-    - best_model.pth         — pesos del mejor modelo (menor val_loss)
+    - best_model.pth         — pesos del mejor modelo (mayor val_acc)
     - training_summary.txt   — resumen legible del entrenamiento
 
 Modos de ejecución:
@@ -46,18 +46,18 @@ from src.model import Simple3DCNN
 # ---------------------------------------------------------------------------
 
 class EarlyStopping:
-    """Para el entrenamiento si val_loss no mejora en `patience` epochs consecutivos."""
+    """Para el entrenamiento si val_acc no mejora en `patience` epochs consecutivos."""
 
     def __init__(self, patience: int = cfg.EARLY_STOPPING_PATIENCE):
         self.patience = patience
-        self.best_loss = float("inf")
+        self.best_acc = 0.0
         self.counter = 0
         self.triggered = False
 
-    def step(self, val_loss: float) -> bool:
+    def step(self, val_acc: float) -> bool:
         """Retorna True si se debe parar el entrenamiento."""
-        if val_loss < self.best_loss:
-            self.best_loss = val_loss
+        if val_acc > self.best_acc:
+            self.best_acc = val_acc
             self.counter = 0
         else:
             self.counter += 1
@@ -176,7 +176,7 @@ def _save_plots(history: list[dict], run_dir: Path) -> None:
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(epochs, train_loss, "o-", label="Train Loss", linewidth=2, markersize=4)
     ax.plot(epochs, val_loss, "s-", label="Val Loss", linewidth=2, markersize=4)
-    best_idx = min(range(len(val_loss)), key=lambda i: val_loss[i])
+    best_idx = max(range(len(val_acc)), key=lambda i: val_acc[i])
     ax.axvline(x=epochs[best_idx], color="red", linestyle="--", alpha=0.5,
                label=f"Best epoch ({epochs[best_idx]})")
     ax.set_xlabel("Epoch", fontsize=12)
@@ -209,7 +209,7 @@ def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
                   n_params: int, elapsed_total: float, class_weights: list,
                   early_stopped: bool = False, patience: int = 0) -> None:
     """Genera un archivo de resumen legible."""
-    best = min(history, key=lambda r: r["val_loss"])
+    best = max(history, key=lambda r: r["val_acc"])
     last = history[-1]
 
     stop_reason = f"Early stopping (patience={patience})" if early_stopped else "Completado"
@@ -272,7 +272,7 @@ def train(
                           100 epochs (sanity check de convergencia).
         run_name: Nombre de la carpeta dentro de outputs/ para esta ejecución.
                   Si None, se genera uno automático con timestamp.
-        patience: Epochs sin mejora en val_loss antes de early stopping.
+        patience: Epochs sin mejora en val_acc antes de early stopping.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
@@ -364,7 +364,7 @@ def train(
     csv_writer.writeheader()
 
     history: list[dict] = []
-    best_val_loss = float("inf")
+    best_val_acc = 0.0
     best_epoch = 0
     t_start = time.time()
 
@@ -375,7 +375,7 @@ def train(
         val_metrics = evaluate(model, val_loader, criterion, device)
 
         elapsed = time.time() - t0
-        is_best = val_metrics["loss"] < best_val_loss
+        is_best = val_metrics["accuracy"] > best_val_acc
 
         row = {
             "epoch": epoch,
@@ -391,18 +391,18 @@ def train(
         csv_file.flush()
 
         if is_best:
-            best_val_loss = val_metrics["loss"]
+            best_val_acc = val_metrics["accuracy"]
             best_epoch = epoch
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
-                "val_loss": best_val_loss,
-                "val_accuracy": val_metrics["accuracy"],
+                "val_loss": val_metrics["loss"],
+                "val_accuracy": best_val_acc,
             }, run_dir / "best_model.pth")
 
-        should_stop = early_stopper.step(val_metrics["loss"])
+        should_stop = early_stopper.step(val_metrics["accuracy"])
         scheduler.step(val_metrics["loss"])
 
         # -- Logging informativo --
@@ -423,15 +423,15 @@ def train(
             f"({elapsed:.0f}s | total: {elapsed_str} | ETA: {eta_str}) ---\n"
             f"  Train  ->  Loss: {train_metrics['loss']:.4f}  |  Acc: {train_metrics['accuracy']:.2%}\n"
             f"  Val    ->  Loss: {val_metrics['loss']:.4f}  |  Acc: {val_metrics['accuracy']:.2%}{best_marker}\n"
-            f"  LR: {current_lr:.2e}  |  Best: epoch {best_epoch} (val_loss={best_val_loss:.4f})  "
+            f"  LR: {current_lr:.2e}  |  Best: epoch {best_epoch} (val_acc={best_val_acc:.2%})  "
             f"| Early stop: {es_bar} {es_counter}/{patience}"
         )
 
         if should_stop:
             print(
                 f"\n{'=' * 60}\n"
-                f"[EARLY STOPPING] Val loss no mejoro en {patience} epochs.\n"
-                f"Mejor epoch: {best_epoch} (val_loss={best_val_loss:.4f})\n"
+                f"[EARLY STOPPING] Val acc no mejoro en {patience} epochs.\n"
+                f"Mejor epoch: {best_epoch} (val_acc={best_val_acc:.2%})\n"
                 f"{'=' * 60}"
             )
             break

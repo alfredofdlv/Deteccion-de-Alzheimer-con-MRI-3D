@@ -1,0 +1,78 @@
+"""
+run_pipeline.py — Ejecuta la pipeline completa: entrenar, evaluar y exportar.
+
+Uso:
+    python run_pipeline.py mi-experimento
+    python run_pipeline.py mi-experimento --epochs 80 --patience 30
+"""
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def run_step(description: str, cmd: list[str]) -> None:
+    sep = "=" * 60
+    print(f"\n{sep}")
+    print(f"  {description}")
+    print(f"  > {' '.join(cmd)}")
+    print(f"{sep}\n")
+
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+    if result.returncode != 0:
+        print(f"\n[ERROR] Falló: {description} (exit code {result.returncode})")
+        sys.exit(result.returncode)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Pipeline completa: train → evaluate → export"
+    )
+    parser.add_argument(
+        "name", type=str,
+        help="Nombre del run (carpeta en outputs/)",
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=None,
+        help="Número máximo de epochs (default: el de config.py)",
+    )
+    parser.add_argument(
+        "--patience", type=int, default=None,
+        help="Early stopping patience (default: el de config.py)",
+    )
+    args = parser.parse_args()
+
+    py = sys.executable
+
+    # 1. Entrenar
+    train_cmd = [py, "-m", "src.train", "--run", args.name]
+    if args.epochs is not None:
+        train_cmd += ["--epochs", str(args.epochs)]
+    if args.patience is not None:
+        train_cmd += ["--patience", str(args.patience)]
+    run_step("PASO 1/3 — Entrenamiento", train_cmd)
+
+    # 2. Evaluar
+    eval_cmd = [py, "-m", "src.evaluate", "--run", args.name]
+    run_step("PASO 2/3 — Evaluación (test set)", eval_cmd)
+
+    # 3. Exportar contexto
+    export_cmd = [
+        py, "export_context.py",
+        "--run", args.name,
+        "-o", f"{args.name}.md",
+    ]
+    run_step("PASO 3/3 — Exportar Markdown", export_cmd)
+
+    print(f"\n{'=' * 60}")
+    print(f"  Pipeline completada para '{args.name}'")
+    print(f"  Resultados en: outputs/{args.name}/")
+    print(f"  Markdown en:   {args.name}.md")
+    print(f"{'=' * 60}\n")
+
+
+if __name__ == "__main__":
+    main()
