@@ -37,13 +37,13 @@ def authenticate(username: str, password: str) -> requests.Session:
         auth=(username, password),
     )
 
-    if resp.status_code != 200 or len(resp.text) < 10:
+    if resp.status_code != 200 or len(resp.text.strip()) < 10:
         raise RuntimeError(
             f"Autenticación fallida (HTTP {resp.status_code}). "
             "Verifica usuario y contraseña."
         )
 
-    print(f"[OK] Sesión autenticada (token: {resp.text[:8]}...)")
+    print(f"[OK] Sesión autenticada (token: {resp.text.strip()[:8]}...)")
     return session
 
 
@@ -141,6 +141,7 @@ def main():
     parser.add_argument("--output", type=str, default=str(DEFAULT_OUTPUT), help="Directorio de salida")
     parser.add_argument("--username", type=str, default=None, help="Usuario NITRC (si no se da, se pide)")
     parser.add_argument("--scan-type", type=str, default="T1w", help="Tipo de scan (default: T1w)")
+    parser.add_argument("--password", type=str, default=None, help="Contraseña NITRC (si no se da, se pide)")
     parser.add_argument("--column", type=str, default=None,
                         help="Nombre de la columna con los experiment IDs (autodetect si no se da)")
     args = parser.parse_args()
@@ -171,7 +172,7 @@ def main():
     print(f"[INFO] {len(experiment_ids)} sesiones a descargar desde columna '{id_col}'")
 
     username = args.username or input("Usuario NITRC: ")
-    password = getpass.getpass("Contraseña NITRC: ")
+    password = args.password or getpass.getpass("Contraseña NITRC: ")
 
     session = authenticate(username, password)
 
