@@ -41,7 +41,7 @@ from sklearn.metrics import f1_score
 from src.config import cfg
 from src.data_utils import load_split
 from src.dataset import describe_transforms, get_dataloader
-from src.model import Simple3DCNN
+from src.model import AVAILABLE_MODELS, get_model
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +271,8 @@ def _save_plots(history: list[dict], run_dir: Path) -> None:
 
 def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
                   n_params: int, elapsed_total: float, class_weights: list,
-                  early_stopped: bool = False, patience: int = 0) -> None:
+                  early_stopped: bool = False, patience: int = 0,
+                  model_name: str = "resnet10") -> None:
     """Genera un archivo de resumen legible."""
     best = max(history, key=lambda r: r["val_f1"])
     last = history[-1]
@@ -284,6 +285,7 @@ def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
         "=" * 60,
         f"Fecha:              {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"Device:             {device}",
+        f"Modelo:             {model_name}",
         f"Parametros:         {n_params:,}",
         f"Class weights:      {class_weights}",
         f"Learning rate:      {cfg.LEARNING_RATE}",
@@ -333,6 +335,7 @@ def train(
     patience: int = cfg.EARLY_STOPPING_PATIENCE,
     dataset: str = "oasis1",
     subset: int | None = None,
+    model_name: str = "resnet10",
 ) -> None:
     """
     Funcion principal de entrenamiento.
@@ -346,6 +349,7 @@ def train(
         patience: Epochs sin mejora en val macro F1 antes de early stopping.
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
         subset: Limitar cada split a N samples (para pruebas rapidas).
+        model_name: Nombre del modelo ('resnet10' o 'simple3dcnn').
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
@@ -354,7 +358,8 @@ def train(
     if device.type == "cuda":
         torch.cuda.manual_seed_all(cfg.RANDOM_SEED)
 
-    model = Simple3DCNN().to(device)
+    model = get_model(model_name).to(device)
+    print(f"[INFO] Modelo: {model_name}")
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[INFO] Parametros entrenables: {n_params:,}")
 
@@ -481,6 +486,7 @@ def train(
             best_epoch = epoch
             torch.save({
                 "epoch": epoch,
+                "model_name": model_name,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
@@ -532,6 +538,7 @@ def train(
         class_weights.cpu().tolist(),
         early_stopped=early_stopper.triggered,
         patience=patience,
+        model_name=model_name,
     )
     print(f"\nArchivos generados:")
     for f in sorted(run_dir.iterdir()):
@@ -546,7 +553,7 @@ def train(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Entrenar AlzheimerResNet sobre OASIS-1 / OASIS-3")
+    parser = argparse.ArgumentParser(description="Entrenar modelo 3D sobre OASIS-1 / OASIS-3")
     parser.add_argument("--epochs", type=int, default=cfg.NUM_EPOCHS,
                         help=f"Numero de epochs (default: {cfg.NUM_EPOCHS})")
     parser.add_argument("--overfit", action="store_true",
@@ -560,6 +567,9 @@ if __name__ == "__main__":
                         help="Dataset a utilizar (default: oasis1)")
     parser.add_argument("--subset", type=int, default=None,
                         help="Limitar a N samples por split (para pruebas rapidas)")
+    parser.add_argument("--model", type=str, default="resnet10",
+                        choices=AVAILABLE_MODELS,
+                        help="Modelo a usar (default: resnet10)")
     args = parser.parse_args()
 
     train(
@@ -569,4 +579,5 @@ if __name__ == "__main__":
         patience=args.patience,
         dataset=args.dataset,
         subset=args.subset,
+        model_name=args.model,
     )

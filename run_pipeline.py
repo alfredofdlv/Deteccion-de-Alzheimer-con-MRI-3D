@@ -58,12 +58,18 @@ def main():
         "--subset", type=int, default=None,
         help="Limitar a N samples por split (para pruebas rapidas)",
     )
+    parser.add_argument(
+        "--model", type=str, default="resnet10",
+        choices=["resnet10", "simple3dcnn"],
+        help="Modelo a usar (default: resnet10)",
+    )
     args = parser.parse_args()
 
     py = sys.executable
 
     # 1. Entrenar
-    train_cmd = [py, "-m", "src.train", "--run", args.name, "--dataset", args.dataset]
+    train_cmd = [py, "-m", "src.train", "--run", args.name, "--dataset", args.dataset,
+                 "--model", args.model]
     if args.epochs is not None:
         train_cmd += ["--epochs", str(args.epochs)]
     if args.patience is not None:
@@ -73,10 +79,11 @@ def main():
     run_step("PASO 1/3 — Entrenamiento", train_cmd)
 
     # 2. Evaluar
-    eval_cmd = [py, "-m", "src.evaluate", "--run", args.name, "--dataset", args.dataset]
+    eval_cmd = [py, "-m", "src.evaluate", "--run", args.name, "--dataset", args.dataset,
+                "--model", args.model]
     if args.subset is not None:
         eval_cmd += ["--subset", str(args.subset)]
-    run_step("PASO 2/3 — Evaluación (test set)", eval_cmd)
+    run_step("PASO 2/3 — Evaluacion (test set)", eval_cmd)
 
     # 3. Exportar contexto (opcional)
     md_path = f"outputs/{args.name}/{args.name}.md"

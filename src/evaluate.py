@@ -32,7 +32,7 @@ from sklearn.metrics import (
 
 from src.config import cfg
 from src.dataset import get_dataloader
-from src.model import Simple3DCNN
+from src.model import AVAILABLE_MODELS, get_model
 
 
 CLASS_NAMES = ["CN", "MCI", "AD"]
@@ -119,31 +119,33 @@ def _plot_confusion_matrix(
 # ---------------------------------------------------------------------------
 
 def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
-                   subset: int | None = None) -> None:
+                   subset: int | None = None, model_name: str | None = None) -> None:
     """
-    Evalúa el mejor modelo de un run sobre un split y genera reportes.
+    Evalua el mejor modelo de un run sobre un split y genera reportes.
 
     Args:
         run_name: Nombre de la carpeta en outputs/ que contiene best_model.pth.
-        split: Split a evaluar ('test' por defecto, también acepta 'val').
+        split: Split a evaluar ('test' por defecto, tambien acepta 'val').
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
         subset: Limitar a N samples (para pruebas rapidas).
+        model_name: Nombre del modelo. Si None, se lee del checkpoint.
     """
     run_dir = cfg.OUTPUTS_DIR / run_name
     model_path = run_dir / "best_model.pth"
 
     if not model_path.exists():
         raise FileNotFoundError(
-            f"No se encontró el modelo: {model_path}\n"
-            f"Asegúrate de haber entrenado con --run {run_name}"
+            f"No se encontro el modelo: {model_path}\n"
+            f"Asegurate de haber entrenado con --run {run_name}"
         )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
 
-    # Cargar modelo
-    model = Simple3DCNN().to(device)
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    resolved_model = model_name or checkpoint.get("model_name", "resnet10")
+    print(f"[INFO] Modelo: {resolved_model}")
+    model = get_model(resolved_model).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     val_f1 = checkpoint.get("val_f1")
     ckpt_info = (
@@ -209,7 +211,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Evaluar AlzheimerResNet sobre test/val set"
+        description="Evaluar modelo 3D sobre test/val set"
     )
     parser.add_argument(
         "--run", type=str, required=True,
@@ -228,7 +230,12 @@ if __name__ == "__main__":
         "--subset", type=int, default=None,
         help="Limitar a N samples (para pruebas rapidas)",
     )
+    parser.add_argument(
+        "--model", type=str, default=None,
+        choices=AVAILABLE_MODELS,
+        help="Modelo a usar (default: auto-detectar del checkpoint)",
+    )
     args = parser.parse_args()
 
     evaluate_model(run_name=args.run, split=args.split, dataset=args.dataset,
-                   subset=args.subset)
+                   subset=args.subset, model_name=args.model)

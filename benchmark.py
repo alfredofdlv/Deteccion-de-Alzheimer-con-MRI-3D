@@ -34,6 +34,9 @@ def main():
                         help="Etiqueta para esta seccion del benchmark (ej. 'Baseline NIfTI')")
     parser.add_argument("--num-workers", type=int, default=None,
                         help="Override de num_workers para el DataLoader")
+    parser.add_argument("--model", type=str, default="resnet10",
+                        choices=["resnet10", "simple3dcnn"],
+                        help="Modelo a usar (default: resnet10)")
     args = parser.parse_args()
 
     results = {}
@@ -50,7 +53,7 @@ def main():
     from src.config import cfg
     from src.data_utils import load_split
     from src.dataset import get_dataloader
-    from src.model import Simple3DCNN
+    from src.model import get_model
     t_import = time.time() - t0
     results["import_time"] = t_import
     print(f"  Importacion: {t_import:.2f}s")
@@ -111,7 +114,8 @@ def main():
 
     # 5. Forward pass
     print(f"\n[4/5] Midiendo forward pass ({n_measure} batches)...")
-    model = Simple3DCNN().to(device)
+    results["model"] = args.model
+    model = get_model(args.model).to(device)
     model.eval()
 
     forward_times = []
@@ -206,7 +210,7 @@ def _generate_section(r: dict) -> str:
         f"",
         f"> {r['date']}",
         f"",
-        f"**Config**: {r['data_format']} | batch_size={r['batch_size']} | num_workers={r['num_workers']} | device={r['device']}",
+        f"**Config**: model={r.get('model', 'n/a')} | {r['data_format']} | batch_size={r['batch_size']} | num_workers={r['num_workers']} | device={r['device']}",
     ]
     if "gpu_name" in r:
         lines.append(f"({r['gpu_name']}, {r['gpu_vram_gb']} GB VRAM)")

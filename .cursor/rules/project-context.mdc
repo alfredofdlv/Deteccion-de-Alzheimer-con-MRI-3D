@@ -1,0 +1,65 @@
+---
+description: Contexto completo del proyecto TFG Alzheimer. Consultar SIEMPRE antes de hacer cualquier cambio.
+globs:
+alwaysApply: true
+---
+
+# Regla: Contexto del Proyecto
+
+## Instruccion principal
+
+Antes de realizar CUALQUIER tarea en este proyecto, **lee obligatoriamente** los siguientes archivos:
+
+1. `Docs/Context.md` — Fuente de verdad tecnica del proyecto (arquitectura, datos, resultados, decisiones)
+2. `DIARIO.md` — Historial cronologico de experimentos y sesiones de trabajo
+3. `src/config.py` — Configuracion centralizada (hiperparametros, rutas, constantes)
+
+## Resumen del proyecto (para contexto rapido)
+
+- **Que es**: TFG de deteccion de Alzheimer mediante MRI 3D estructural con Deep Learning
+- **Dataset activo**: OASIS-3 (2450 sesiones MRI, splits: 1731/369/350)
+- **Clasificacion**: 3 clases basadas en CDR: CN (CDR=0), MCI (CDR=0.5), AD (CDR>=1)
+- **Distribucion**: Clases desbalanceadas (CN mayoritaria, AD minoritaria)
+- **Modelo**: `AlzheimerResNet` — ResNet-10 3D de MONAI (~14.3M parametros)
+- **Metrica de seleccion**: **Macro F1-score** (robusto ante class imbalance)
+- **Stack**: Python 3.10, PyTorch, MONAI, Pandas, scikit-learn
+- **Datos preprocesados**: tensores `.pt` offline para acelerar entrenamiento
+
+## Reglas para el agente
+
+1. **No inventar datos**: Los resultados experimentales estan en `DIARIO.md` y `outputs/`. Citalos, no los inventes.
+2. **Respetar `config.py`**: Todos los hiperparametros se definen ahi. No hardcodear valores magicos.
+3. **Consistencia de codigo**: Seguir el estilo existente en `src/`. Usar MONAI para transforms y data loading.
+4. **Reproducibilidad**: Usar siempre `RANDOM_SEED` de config para splits e inicializacion.
+5. **No borrar experimentos**: Los outputs en `outputs/` son resultados historicos. No eliminarlos.
+6. **Documentar cambios**: Al finalizar una sesion donde se hagan cambios significativos, actualizar `DIARIO.md`.
+7. **Idioma**: Responder siempre en espanol.
+
+## Arquitectura del codigo
+
+```
+src/
+├── config.py        # Configuracion centralizada
+├── data_prepare.py  # ETL OASIS-1: extraccion, CSV maestro, splits
+├── data_utils.py    # Carga de splits (auto-detecta .pt vs NIfTI)
+├── dataset.py       # MONAI transforms (NIfTI y .pt) + DataLoaders
+├── model.py         # AlzheimerResNet (ResNet-10 3D de MONAI)
+├── train.py         # Training loop (macro F1, early stopping)
+└── evaluate.py      # Evaluacion en test set + metricas + confusion matrix
+```
+
+## Decisiones tecnicas vigentes
+
+- **Modelo**: ResNet-10 3D de MONAI (reemplazo de Simple3DCNN manual)
+- **Label smoothing**: 0.1 — ayuda a distribuir mejor las predicciones entre clases
+- **Early stopping**: Por **macro F1** — metrica robusta para datasets desbalanceados
+- **Seleccion de modelo**: Mejor **val macro F1** (no accuracy)
+- **Data augmentation**: RandFlip, RandRotate, RandGaussianNoise, RandShiftIntensity
+- **Preprocesamiento offline**: NIfTI -> .pt para reducir I/O de ~1.4s a ~0.05s por batch
+
+## Proximos pasos prioritarios
+
+1. Entrenar ResNet-10 sobre OASIS-3 completo
+2. Implementar Grad-CAM para explicabilidad
+3. Considerar cross-validation
+4. Explorar fine-tuning de hiperparametros

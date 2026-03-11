@@ -1,0 +1,94 @@
+---
+description: Regla para mantener el diario de sesión (DIARIO.md). Aplicar al final de cada sesión de trabajo significativa.
+globs:
+alwaysApply: true
+---
+
+# Regla: Diario de Sesión
+
+## Instrucción
+
+Al finalizar una sesión de trabajo donde se realicen **cambios significativos** (experimentos, cambios de arquitectura, nuevas funcionalidades, corrección de bugs importantes), el agente DEBE actualizar el archivo `DIARIO.md` añadiendo una nueva entrada.
+
+## Qué se considera "cambio significativo"
+
+- Ejecución de un entrenamiento o experimento
+- Cambio en la arquitectura del modelo
+- Modificación de hiperparámetros con justificación
+- Adición o cambio del pipeline de datos
+- Integración de nuevos datasets
+- Corrección de bugs que afecten resultados
+- Decisiones arquitectónicas importantes
+
+## Qué NO requiere entrada en el diario
+
+- Correcciones de typos o formato
+- Refactorización menor sin cambio funcional
+- Preguntas informativas sin cambio de código
+- Exploración que no lleva a cambios
+
+## Formato de una entrada
+
+Añadir siempre **al inicio** del archivo (después del encabezado), respetando este formato:
+
+```markdown
+---
+
+## YYYY-MM-DD — [Título breve descriptivo]
+
+### Resumen
+[1-3 líneas sobre qué se hizo y por qué]
+
+### Cambios realizados
+- [Cambio 1]
+- [Cambio 2]
+
+### Resultados (si aplica)
+- [Métrica 1]: [valor]
+- [Métrica 2]: [valor]
+
+### Decisiones tomadas
+- [Decisión y justificación]
+
+### Próximos pasos sugeridos
+- [Acción recomendada]
+```
+
+## Reglas adicionales
+
+1. **Nunca eliminar entradas anteriores** — el diario es append-only.
+2. **Ser conciso pero completo** — cada entrada debe ser autocontenida.
+3. **Incluir valores numéricos** cuando haya resultados experimentales.
+4. **Usar formato de fecha ISO** (YYYY-MM-DD).
+5. **Si hay muchos experimentos en una sesión**, agruparlos bajo una sola entrada con sub-secciones.
+
+## Ejemplo de uso
+
+Si durante una sesión se probó un nuevo learning rate y se cambió la augmentation:
+
+```markdown
+## 2026-03-15 — Ajuste de learning rate y augmentation agresiva
+
+### Resumen
+Se redujo el LR a 5e-5 y se añadió RandAffined para aumentar la diversidad de augmentation.
+
+### Cambios realizados
+- Modificado `config.py`: LEARNING_RATE de 1e-4 a 5e-5
+- Añadido `RandAffined` en `dataset.py` con rotate_range=0.3, scale_range=0.2
+
+### Resultados
+- Val accuracy: 68.57% (vs 65.71% anterior)
+- Test accuracy: 58.33% (sin cambio significativo)
+
+### Decisiones tomadas
+- Mantener LR=5e-5 — mejora val sin perjudicar test
+- RandAffined aporta variabilidad útil — se mantiene
+
+### Próximos pasos sugeridos
+- Probar CosineAnnealingLR como scheduler alternativo
+- Evaluar si el modelo con 5 bloques mejora con el nuevo LR
+```
+
+## También actualizar Context.md cuando sea necesario
+
+Si los cambios de la sesión afectan a la "verdad" del proyecto (nueva mejor configuración, cambio de stack, decisión arquitectónica permanente), actualizar también `Docs/Context.md` para mantenerlo sincronizado.
