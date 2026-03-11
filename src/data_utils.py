@@ -22,6 +22,10 @@ def load_split(split_name: str, dataset: str = "oasis1") -> pd.DataFrame:
     """
     Carga un CSV de partición desde data/splits/.
 
+    Busca primero la version preprocesada (_pt.csv) y, si no existe,
+    usa la original. Esto permite usar tensores .pt automaticamente
+    cuando estan disponibles.
+
     Args:
         split_name: Nombre del split sin extensión (ej. 'train', 'val', 'test').
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
@@ -35,17 +39,21 @@ def load_split(split_name: str, dataset: str = "oasis1") -> pd.DataFrame:
         FileNotFoundError: Si el CSV no existe.
     """
     if dataset == "oasis1":
+        pt_path = cfg.DATA_SPLITS_DIR / f"{split_name}_pt.csv"
         csv_path = cfg.DATA_SPLITS_DIR / f"{split_name}.csv"
     else:
+        pt_path = cfg.DATA_SPLITS_DIR / f"{dataset}_{split_name}_pt.csv"
         csv_path = cfg.DATA_SPLITS_DIR / f"{dataset}_{split_name}.csv"
+
+    if pt_path.exists():
+        return pd.read_csv(pt_path)
 
     if not csv_path.exists():
         raise FileNotFoundError(
             f"No se encontró el archivo de split: {csv_path}\n"
             f"Dataset: {dataset}, split: {split_name}"
         )
-    df = pd.read_csv(csv_path)
-    return df
+    return pd.read_csv(csv_path)
 
 
 def build_image_path(subject_id: str) -> Path:

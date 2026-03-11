@@ -31,6 +31,7 @@ class ProjectConfig:
     DATA_RAW_DIR: Path = DATA_DIR / "raw"
     DATA_PROCESSED_DIR: Path = DATA_DIR / "processed"
     DATA_SPLITS_DIR: Path = DATA_DIR / "splits"
+    PREPROCESSED_DIR: Path = DATA_DIR / "preprocessed"
 
     OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs"
 
@@ -61,7 +62,7 @@ class ProjectConfig:
     # Hiperparámetros de entrenamiento
     # ========================
     BATCH_SIZE: int = 4          # Conservador para GPUs con poca VRAM
-    NUM_WORKERS: int = 2         # DataLoader workers (ajustar según CPU)
+    NUM_WORKERS: int = 4         # DataLoader workers (ajustar según CPU)
     LEARNING_RATE: float = 1e-4
     WEIGHT_DECAY: float = 1e-4         # Regularización L2 (penalización sobre norma de pesos)
     NUM_EPOCHS: int = 50

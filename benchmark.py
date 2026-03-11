@@ -9,12 +9,14 @@ Mide:
   5. Tiempo de forward + backward + optimizer step
   6. Estimacion de un epoch completo
 
-Genera Docs/benchmark.md con los resultados.
+Appendea resultados a Docs/benchmark.md (preserva secciones anteriores).
 
 Uso:
-    python benchmark.py                          # benchmark con oasis3
-    python benchmark.py --dataset oasis1         # benchmark con oasis1
-    python benchmark.py --batches 20             # medir 20 batches (default: 10)
+    python benchmark.py                                                  # baseline
+    python benchmark.py --label "Preprocessed .pt + 4 workers"           # con label
+    python benchmark.py --dataset oasis1                                 # otro dataset
+    python benchmark.py --batches 20                                     # mas batches
+    python benchmark.py --num-workers 4                                  # override workers
 """
 
 import argparse
@@ -23,10 +25,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark del pipeline de entrenamiento")
     parser.add_argument("--dataset", type=str, default="oasis3", choices=["oasis1", "oasis3"])
     parser.add_argument("--batches", type=int, default=10, help="Numero de batches a medir")
+    parser.add_argument("--label", type=str, default=None,
+                        help="Etiqueta para esta seccion del benchmark (ej. 'Baseline NIfTI')")
+    parser.add_argument("--num-workers", type=int, default=None,
+                        help="Override de num_workers para el DataLoader")
     args = parser.parse_args()
 
     results = {}
@@ -34,6 +41,7 @@ def main():
     results["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     results["platform"] = platform.platform()
     results["processor"] = platform.processor()
+    results["label"] = args.label or f"{args.dataset.upper()} benchmark"
 
     # 1. Import MONAI
     print("[1/5] Importando MONAI y dependencias...")
@@ -41,7 +49,7 @@ def main():
     import torch
     from src.config import cfg
     from src.data_utils import load_split
-    from src.dataset import get_dataloader, get_transforms
+    from src.dataset import get_dataloader
     from src.model import Simple3DCNN
     t_import = time.time() - t0
     results["import_time"] = t_import
@@ -54,31 +62,38 @@ def main():
         results["gpu_vram_gb"] = round(torch.cuda.get_device_properties(0).total_memory / 1e9, 1)
     print(f"  Device: {device}" + (f" ({results.get('gpu_name', '')})" if device.type == "cuda" else ""))
 
-    # 2. Contar samples
+    num_workers = args.num_workers if args.num_workers is not None else cfg.NUM_WORKERS
+    results["num_workers"] = num_workers
+
+    # 2. Contar samples y detectar tipo (.pt o NIfTI)
     df_train = load_split("train", dataset=args.dataset)
     df_val = load_split("val", dataset=args.dataset)
     df_test = load_split("test", dataset=args.dataset)
+    is_pt = str(df_train.iloc[0]["image_path"]).endswith(".pt")
+    results["data_format"] = ".pt (preprocessed)" if is_pt else "NIfTI (.nii.gz / .img)"
     results["train_samples"] = len(df_train)
     results["val_samples"] = len(df_val)
     results["test_samples"] = len(df_test)
     results["batch_size"] = cfg.BATCH_SIZE
     results["train_batches"] = (len(df_train) + cfg.BATCH_SIZE - 1) // cfg.BATCH_SIZE
     results["val_batches"] = (len(df_val) + cfg.BATCH_SIZE - 1) // cfg.BATCH_SIZE
+    print(f"  Formato: {results['data_format']}")
     print(f"  Samples — train: {len(df_train)}, val: {len(df_val)}, test: {len(df_test)}")
-    print(f"  Batch size: {cfg.BATCH_SIZE}, Train batches/epoch: {results['train_batches']}, Val batches/epoch: {results['val_batches']}")
+    print(f"  Batch size: {cfg.BATCH_SIZE}, num_workers: {num_workers}")
+    print(f"  Train batches/epoch: {results['train_batches']}, Val batches/epoch: {results['val_batches']}")
 
     # 3. DataLoader creation
     print("\n[2/5] Creando DataLoaders...")
     t0 = time.time()
-    train_loader = get_dataloader("train", num_workers=0, dataset=args.dataset)
-    val_loader = get_dataloader("val", num_workers=0, dataset=args.dataset)
+    train_loader = get_dataloader("train", num_workers=num_workers, dataset=args.dataset)
+    val_loader = get_dataloader("val", num_workers=num_workers, dataset=args.dataset)
     t_loader = time.time() - t0
     results["dataloader_creation_time"] = t_loader
     print(f"  DataLoader creation: {t_loader:.2f}s")
 
     # 4. Batch loading (I/O + transforms)
     n_measure = min(args.batches, len(train_loader))
-    print(f"\n[3/5] Midiendo carga de {n_measure} batches (I/O + transforms MONAI)...")
+    print(f"\n[3/5] Midiendo carga de {n_measure} batches...")
     batch_load_times = []
     loader_iter = iter(train_loader)
     for i in range(n_measure):
@@ -86,13 +101,13 @@ def main():
         batch = next(loader_iter)
         t_batch = time.time() - t0
         batch_load_times.append(t_batch)
-        print(f"  Batch {i+1}/{n_measure}: {t_batch:.2f}s | shape: {list(batch['image'].shape)}")
+        print(f"  Batch {i+1}/{n_measure}: {t_batch:.3f}s | shape: {list(batch['image'].shape)}")
 
     avg_load = sum(batch_load_times) / len(batch_load_times)
-    results["avg_batch_load_s"] = round(avg_load, 3)
-    results["min_batch_load_s"] = round(min(batch_load_times), 3)
-    results["max_batch_load_s"] = round(max(batch_load_times), 3)
-    print(f"  Promedio: {avg_load:.3f}s | Min: {min(batch_load_times):.3f}s | Max: {max(batch_load_times):.3f}s")
+    results["avg_batch_load_s"] = round(avg_load, 4)
+    results["min_batch_load_s"] = round(min(batch_load_times), 4)
+    results["max_batch_load_s"] = round(max(batch_load_times), 4)
+    print(f"  Promedio: {avg_load:.4f}s | Min: {min(batch_load_times):.4f}s | Max: {max(batch_load_times):.4f}s")
 
     # 5. Forward pass
     print(f"\n[4/5] Midiendo forward pass ({n_measure} batches)...")
@@ -167,73 +182,50 @@ def main():
     print(f"\n  50 epochs: ~{est_epoch_total*50/3600:.1f} horas")
     print(f"  100 epochs: ~{est_epoch_total*100/3600:.1f} horas")
 
-    # Generar MD
-    md = _generate_md(results)
+    # Appendear seccion al MD
+    section = _generate_section(results)
     out_path = Path("Docs/benchmark.md")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(md, encoding="utf-8")
-    print(f"\n[OK] Guia guardada en: {out_path}")
+
+    if out_path.exists():
+        existing = out_path.read_text(encoding="utf-8")
+        new_content = existing.rstrip("\n") + "\n\n" + section
+    else:
+        header = "# Benchmark de tiempos\n\n"
+        new_content = header + section
+
+    out_path.write_text(new_content, encoding="utf-8")
+    print(f"\n[OK] Seccion '{results['label']}' appendeada a: {out_path}")
 
 
-def _generate_md(r: dict) -> str:
+def _generate_section(r: dict) -> str:
     lines = [
-        f"# Benchmark de tiempos — {r['dataset'].upper()}",
+        f"---",
         f"",
-        f"> Generado: {r['date']}",
+        f"## {r['label']}",
         f"",
-        f"## Hardware",
+        f"> {r['date']}",
         f"",
-        f"| Componente | Valor |",
-        f"|---|---|",
-        f"| Plataforma | {r['platform']} |",
-        f"| Procesador | {r['processor']} |",
-        f"| Device | {r['device']} |",
+        f"**Config**: {r['data_format']} | batch_size={r['batch_size']} | num_workers={r['num_workers']} | device={r['device']}",
     ]
     if "gpu_name" in r:
-        lines.append(f"| GPU | {r['gpu_name']} |")
-        lines.append(f"| VRAM | {r['gpu_vram_gb']} GB |")
+        lines.append(f"({r['gpu_name']}, {r['gpu_vram_gb']} GB VRAM)")
+    lines.append("")
 
     lines += [
-        f"",
-        f"## Dataset",
-        f"",
-        f"| Split | Samples | Batches (bs={r['batch_size']}) |",
-        f"|---|---|---|",
-        f"| Train | {r['train_samples']} | {r['train_batches']} |",
-        f"| Val | {r['val_samples']} | {r['val_batches']} |",
-        f"| Test | {r['test_samples']} | — |",
-        f"",
-        f"## Tiempos medidos",
-        f"",
         f"| Fase | Tiempo |",
         f"|---|---|",
-        f"| Import MONAI + deps | {r['import_time']:.2f}s |",
-        f"| Crear DataLoaders | {r['dataloader_creation_time']:.2f}s |",
-        f"| Carga batch (I/O + transforms) | {r['avg_batch_load_s']:.3f}s (min: {r['min_batch_load_s']}, max: {r['max_batch_load_s']}) |",
+        f"| Carga batch | {r['avg_batch_load_s']:.4f}s (min: {r['min_batch_load_s']}, max: {r['max_batch_load_s']}) |",
         f"| Forward pass | {r['avg_forward_s']:.4f}s |",
-        f"| Train step (fwd+bwd+optim) | {r['avg_train_step_s']:.4f}s |",
+        f"| Train step completo | {r['avg_train_step_s']:.4f}s |",
         f"",
-        f"## Estimacion por epoch",
-        f"",
-        f"| Fase | Tiempo |",
+        f"| Estimacion | Tiempo |",
         f"|---|---|",
-        f"| Train ({r['train_batches']} batches) | {r['est_train_epoch_s']}s ({r['est_train_epoch_s']/60:.1f} min) |",
-        f"| Val ({r['val_batches']} batches) | {r['est_val_epoch_s']}s ({r['est_val_epoch_s']/60:.1f} min) |",
-        f"| **Total por epoch** | **{r['est_epoch_total_s']}s ({r['est_epoch_total_min']} min)** |",
-        f"",
-        f"## Estimacion entrenamiento completo",
-        f"",
-        f"| Epochs | Tiempo estimado |",
-        f"|---|---|",
-        f"| 10 | {r['est_epoch_total_s']*10/60:.0f} min |",
-        f"| 25 | {r['est_epoch_total_s']*25/3600:.1f} horas |",
-        f"| 50 | {r['est_epoch_total_s']*50/3600:.1f} horas |",
-        f"| 100 | {r['est_epoch_total_s']*100/3600:.1f} horas |",
-        f"",
-        f"---",
-        f"*Nota: las estimaciones asumen tiempos constantes por batch. El primer epoch",
-        f"puede ser mas lento por carga en cache del SO. Con `num_workers>0` los tiempos",
-        f"de I/O pueden mejorar significativamente.*",
+        f"| Train/epoch ({r['train_batches']} batches) | {r['est_train_epoch_s']}s ({r['est_train_epoch_s']/60:.1f} min) |",
+        f"| Val/epoch ({r['val_batches']} batches) | {r['est_val_epoch_s']}s ({r['est_val_epoch_s']/60:.1f} min) |",
+        f"| **Total/epoch** | **{r['est_epoch_total_s']}s ({r['est_epoch_total_min']} min)** |",
+        f"| 50 epochs | {r['est_epoch_total_s']*50/3600:.1f} horas |",
+        f"| 100 epochs | {r['est_epoch_total_s']*100/3600:.1f} horas |",
         f"",
     ]
     return "\n".join(lines)

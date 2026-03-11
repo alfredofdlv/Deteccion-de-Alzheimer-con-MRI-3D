@@ -24,11 +24,14 @@ from __future__ import annotations
 
 from typing import List
 
+import torch
+from monai.config import KeysCollection
 from monai.data import CacheDataset, DataLoader, Dataset
 from monai.transforms import (
     Compose,
     EnsureChannelFirstd,
     LoadImaged,
+    MapTransform,
     Orientationd,
     RandFlipd,
     RandGaussianNoised,
@@ -40,6 +43,19 @@ from monai.transforms import (
 
 from src.config import cfg
 from src.data_utils import load_split
+
+
+class LoadPTd(MapTransform):
+    """Carga un tensor .pt preprocesado (reemplaza a LoadImaged para archivos .pt)."""
+
+    def __init__(self, keys: KeysCollection):
+        super().__init__(keys)
+
+    def __call__(self, data):
+        d = dict(data)
+        for key in self.keys:
+            d[key] = torch.load(d[key], weights_only=False, map_location="cpu")
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +100,27 @@ def get_transforms(split: str = "train") -> Compose:
         ),
         Resized(keys=["image"], spatial_size=cfg.IMAGE_SIZE),
     ]
+
+    if split == "train":
+        transforms.extend([
+            RandFlipd(keys=["image"], prob=0.5, spatial_axis=0),
+            RandRotated(keys=["image"], range_x=0.2, range_y=0.2, range_z=0.2, prob=0.3),
+            RandGaussianNoised(keys=["image"], prob=0.3, mean=0.0, std=0.05),
+            RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.3),
+        ])
+
+    return Compose(transforms)
+
+
+def get_transforms_pt(split: str = "train") -> Compose:
+    """
+    Pipeline para tensores .pt ya preprocesados.
+
+    Solo carga el tensor y aplica data augmentation si es train.
+    Las transforms determinísticas (Orientation, Scale, Resize) ya se
+    aplicaron offline por preprocess_to_pt.py.
+    """
+    transforms: list = [LoadPTd(keys=["image"])]
 
     if split == "train":
         transforms.extend([
@@ -206,7 +243,9 @@ def get_dataloader(
     data_dicts = _build_data_dicts(split, dataset=dataset)
     if subset is not None and subset < len(data_dicts):
         data_dicts = data_dicts[:subset]
-    transforms = get_transforms(split)
+
+    is_pt = len(data_dicts) > 0 and data_dicts[0]["image"].endswith(".pt")
+    transforms = get_transforms_pt(split) if is_pt else get_transforms(split)
 
     if use_cache:
         dataset = CacheDataset(
