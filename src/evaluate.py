@@ -1,5 +1,5 @@
 """
-evaluate.py — Evaluación del modelo sobre el test set con métricas detalladas.
+evaluate.py — Evaluación del modelo sobre el test set con métricas detalladas (OASIS-1 / OASIS-3).
 
 Genera en outputs/<run_name>/:
     - classification_report.txt  — precision, recall, F1 por clase
@@ -104,13 +104,14 @@ def _plot_confusion_matrix(
 # Main evaluation
 # ---------------------------------------------------------------------------
 
-def evaluate_model(run_name: str, split: str = "test") -> None:
+def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1") -> None:
     """
     Evalúa el mejor modelo de un run sobre un split y genera reportes.
 
     Args:
         run_name: Nombre de la carpeta en outputs/ que contiene best_model.pth.
         split: Split a evaluar ('test' por defecto, también acepta 'val').
+        dataset: Identificador del dataset ('oasis1' o 'oasis3').
     """
     run_dir = cfg.OUTPUTS_DIR / run_name
     model_path = run_dir / "best_model.pth"
@@ -134,7 +135,7 @@ def evaluate_model(run_name: str, split: str = "test") -> None:
     )
 
     # Inferencia
-    loader = get_dataloader(split, shuffle=False, num_workers=0)
+    loader = get_dataloader(split, shuffle=False, num_workers=0, dataset=dataset)
     print(f"[INFO] Evaluando sobre '{split}' ({len(loader.dataset)} muestras)...")
 
     all_labels, all_preds = collect_predictions(model, loader, device)
@@ -197,6 +198,11 @@ if __name__ == "__main__":
         "--split", type=str, default="test", choices=["test", "val"],
         help="Split a evaluar (default: test)",
     )
+    parser.add_argument(
+        "--dataset", type=str, default="oasis1",
+        choices=["oasis1", "oasis3"],
+        help="Dataset a utilizar (default: oasis1)",
+    )
     args = parser.parse_args()
 
-    evaluate_model(run_name=args.run, split=args.split)
+    evaluate_model(run_name=args.run, split=args.split, dataset=args.dataset)

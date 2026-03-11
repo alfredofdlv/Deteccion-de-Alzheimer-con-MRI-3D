@@ -18,12 +18,15 @@ import pandas as pd
 from src.config import cfg
 
 
-def load_split(split_name: str) -> pd.DataFrame:
+def load_split(split_name: str, dataset: str = "oasis1") -> pd.DataFrame:
     """
     Carga un CSV de partición desde data/splits/.
 
     Args:
         split_name: Nombre del split sin extensión (ej. 'train', 'val', 'test').
+        dataset: Identificador del dataset ('oasis1' o 'oasis3').
+                 'oasis1' busca {split_name}.csv,
+                 otros buscan {dataset}_{split_name}.csv.
 
     Returns:
         DataFrame con columnas esperadas: ['subject_id', 'image_path', 'label'].
@@ -31,11 +34,15 @@ def load_split(split_name: str) -> pd.DataFrame:
     Raises:
         FileNotFoundError: Si el CSV no existe.
     """
-    csv_path = cfg.DATA_SPLITS_DIR / f"{split_name}.csv"
+    if dataset == "oasis1":
+        csv_path = cfg.DATA_SPLITS_DIR / f"{split_name}.csv"
+    else:
+        csv_path = cfg.DATA_SPLITS_DIR / f"{dataset}_{split_name}.csv"
+
     if not csv_path.exists():
         raise FileNotFoundError(
             f"No se encontró el archivo de split: {csv_path}\n"
-            f"Asegúrate de haber ejecutado: python -m src.data_prepare"
+            f"Dataset: {dataset}, split: {split_name}"
         )
     df = pd.read_csv(csv_path)
     return df

@@ -1,5 +1,5 @@
 """
-train.py — Training loop para Simple3DCNN sobre OASIS-1.
+train.py — Training loop para Simple3DCNN sobre OASIS-1 / OASIS-3.
 
 Genera automáticamente en outputs/<run_name>/:
     - training_log.csv       — métricas por epoch
@@ -70,13 +70,13 @@ class EarlyStopping:
 # Class weights
 # ---------------------------------------------------------------------------
 
-def compute_class_weights() -> torch.Tensor:
+def compute_class_weights(dataset: str = "oasis1") -> torch.Tensor:
     """
     Calcula pesos inversamente proporcionales a la frecuencia de cada clase.
 
     Formula: weight_i = N_total / (N_classes * N_i)
     """
-    df = load_split("train")
+    df = load_split("train", dataset=dataset)
     counts = df["label"].value_counts().sort_index()
     n_total = len(df)
     n_classes = cfg.NUM_CLASSES
@@ -262,6 +262,7 @@ def train(
     overfit_one_batch: bool = False,
     run_name: str | None = None,
     patience: int = cfg.EARLY_STOPPING_PATIENCE,
+    dataset: str = "oasis1",
 ) -> None:
     """
     Función principal de entrenamiento.
@@ -273,6 +274,7 @@ def train(
         run_name: Nombre de la carpeta dentro de outputs/ para esta ejecución.
                   Si None, se genera uno automático con timestamp.
         patience: Epochs sin mejora en val_acc antes de early stopping.
+        dataset: Identificador del dataset ('oasis1' o 'oasis3').
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
@@ -285,7 +287,7 @@ def train(
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[INFO] Parametros entrenables: {n_params:,}")
 
-    class_weights = compute_class_weights().to(device)
+    class_weights = compute_class_weights(dataset=dataset).to(device)
     criterion = nn.CrossEntropyLoss(weight=class_weights,label_smoothing=0.1)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY,
@@ -300,7 +302,7 @@ def train(
         print("MODO OVERFIT-ONE-BATCH (sanity check)")
         print("=" * 60)
 
-        loader = get_dataloader("train", batch_size=4, num_workers=0, shuffle=False)
+        loader = get_dataloader("train", batch_size=4, num_workers=0, shuffle=False, dataset=dataset)
         single_batch = next(iter(loader))
         images = single_batch["image"].to(device)
         labels = single_batch["label"].to(device)
@@ -350,8 +352,8 @@ def train(
     print(f"Resultados en: {run_dir}")
     print("=" * 60)
 
-    train_loader = get_dataloader("train", num_workers=0)
-    val_loader = get_dataloader("val", num_workers=0)
+    train_loader = get_dataloader("train", num_workers=0, dataset=dataset)
+    val_loader = get_dataloader("val", num_workers=0, dataset=dataset)
     print(f"[INFO] Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
 
     # CSV log
@@ -460,7 +462,7 @@ def train(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Entrenar Simple3DCNN sobre OASIS-1")
+    parser = argparse.ArgumentParser(description="Entrenar Simple3DCNN sobre OASIS-1 / OASIS-3")
     parser.add_argument("--epochs", type=int, default=cfg.NUM_EPOCHS,
                         help=f"Numero de epochs (default: {cfg.NUM_EPOCHS})")
     parser.add_argument("--overfit", action="store_true",
@@ -469,6 +471,9 @@ if __name__ == "__main__":
                         help="Nombre de la carpeta de resultados (default: run_TIMESTAMP)")
     parser.add_argument("--patience", type=int, default=cfg.EARLY_STOPPING_PATIENCE,
                         help=f"Early stopping patience (default: {cfg.EARLY_STOPPING_PATIENCE})")
+    parser.add_argument("--dataset", type=str, default="oasis1",
+                        choices=["oasis1", "oasis3"],
+                        help="Dataset a utilizar (default: oasis1)")
     args = parser.parse_args()
 
     train(
@@ -476,4 +481,5 @@ if __name__ == "__main__":
         overfit_one_batch=args.overfit,
         run_name=args.run,
         patience=args.patience,
+        dataset=args.dataset,
     )

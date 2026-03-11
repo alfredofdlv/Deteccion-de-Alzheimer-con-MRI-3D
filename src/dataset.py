@@ -1,5 +1,5 @@
 """
-dataset.py — Dataset MONAI y DataLoaders para MRI 3D (OASIS-1).
+dataset.py — Dataset MONAI y DataLoaders para MRI 3D (OASIS-1 / OASIS-3).
 
 Proporciona el pipeline de transforms y los DataLoaders listos para
 alimentar el modelo con tensores de forma (B, 1, 96, 96, 96).
@@ -142,20 +142,21 @@ def describe_transforms(split: str = "train") -> str:
 # Data dicts
 # ---------------------------------------------------------------------------
 
-def _build_data_dicts(split: str) -> List[dict]:
+def _build_data_dicts(split: str, dataset: str = "oasis1") -> List[dict]:
     """
     Convierte un CSV de split en la lista de dicts que MONAI espera.
 
     Cada dict tiene la forma:
-        {"image": "/ruta/al/OAS1_XXXX_MR1.img", "label": 0}
+        {"image": "/ruta/al/imagen.img_o_.nii.gz", "label": 0}
 
     Args:
         split: Nombre del split ('train', 'val', 'test').
+        dataset: Identificador del dataset ('oasis1' o 'oasis3').
 
     Returns:
         Lista de diccionarios con claves 'image' y 'label'.
     """
-    df = load_split(split)
+    df = load_split(split, dataset=dataset)
     data_dicts = [
         {"image": row["image_path"], "label": int(row["label"])}
         for _, row in df.iterrows()
@@ -173,6 +174,7 @@ def get_dataloader(
     shuffle: bool | None = None,
     num_workers: int | None = None,
     use_cache: bool = False,
+    dataset: str = "oasis1",
 ) -> DataLoader:
     """
     Crea un DataLoader MONAI listo para iterar.
@@ -185,6 +187,7 @@ def get_dataloader(
         use_cache: Si True, usa CacheDataset (precarga todos los volúmenes en RAM).
                    Recomendado solo si tienes >16 GB de RAM disponible.
                    Por defecto False (usa Dataset estándar).
+        dataset: Identificador del dataset ('oasis1' o 'oasis3').
 
     Returns:
         monai.data.DataLoader con batches de:
@@ -198,7 +201,7 @@ def get_dataloader(
     if num_workers is None:
         num_workers = cfg.NUM_WORKERS
 
-    data_dicts = _build_data_dicts(split)
+    data_dicts = _build_data_dicts(split, dataset=dataset)
     transforms = get_transforms(split)
 
     if use_cache:

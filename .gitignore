@@ -1,13 +1,14 @@
 # ==============================================================================
-# TFG - Detección Temprana de Alzheimer
-# .gitignore — Protección de datos médicos y limpieza del repositorio
+# TFG - Deteccion Temprana de Alzheimer
+# .gitignore
 # ==============================================================================
 
-# ========================
-# 🔒 DATOS MÉDICOS (CRÍTICO)
-# ========================
-# NUNCA subir datos de pacientes a un repositorio público/privado.
-# Formatos de neuroimagen
+# -------------------------------------------------------
+# Datos medicos — NUNCA subir datos de pacientes
+# -------------------------------------------------------
+data/
+
+# Formatos de neuroimagen sueltos (por si aparecen fuera de data/)
 *.nii
 *.nii.gz
 *.dcm
@@ -18,13 +19,7 @@
 *.hdr
 *.img
 
-# Carpetas de datos completas
-data/raw/
-data/processed/
-data/splits/
-data/OASIS-1/
-
-# Archivos grandes genéricos
+# Archivos grandes
 *.h5
 *.hdf5
 *.npy
@@ -33,9 +28,26 @@ data/OASIS-1/
 *.tar.gz
 *.zip
 
-# ========================
-# 🐍 Python
-# ========================
+# -------------------------------------------------------
+# Outputs de entrenamiento (pesos, graficas, logs)
+# -------------------------------------------------------
+outputs/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+wandb/
+mlruns/
+lightning_logs/
+
+# -------------------------------------------------------
+# Repositorios externos clonados
+# -------------------------------------------------------
+oasis-scripts/
+
+# -------------------------------------------------------
+# Python
+# -------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -46,37 +58,24 @@ dist/
 build/
 *.whl
 
-# ========================
-# 📦 Entornos virtuales
-# ========================
+# -------------------------------------------------------
+# Entornos virtuales
+# -------------------------------------------------------
+.venv/
 venv/
 env/
 .env/
-.venv/
 ENV/
 conda-env/
 
-# ========================
-# 📓 Jupyter Notebooks
-# ========================
+# -------------------------------------------------------
+# Jupyter
+# -------------------------------------------------------
 .ipynb_checkpoints/
-*.ipynb_checkpoints
 
-# ========================
-# 🧠 Pesos de modelos y logs
-# ========================
-outputs/
-*.pth
-*.pt
-*.ckpt
-*.onnx
-wandb/
-mlruns/
-lightning_logs/
-
-# ========================
-# 💻 IDE y Sistema
-# ========================
+# -------------------------------------------------------
+# IDE y sistema
+# -------------------------------------------------------
 .vscode/
 .idea/
 *.swp
@@ -86,12 +85,19 @@ lightning_logs/
 Thumbs.db
 desktop.ini
 
-# ========================
-# 📋 Miscelánea
-# ========================
+# -------------------------------------------------------
+# Temporales y caches
+# -------------------------------------------------------
 *.log
 *.tmp
 *.bak
 *.cache
 .pytest_cache/
 .mypy_cache/
+.test-cookies.txt
+
+# -------------------------------------------------------
+# Archivos de exploracion (scripts auxiliares, no del pipeline)
+# -------------------------------------------------------
+explorar_non_imaging.py
+resumen_non_imaging_csvs.txt

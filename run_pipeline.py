@@ -5,6 +5,7 @@ Uso:
     python run_pipeline.py mi-experimento
     python run_pipeline.py mi-experimento --epochs 80 --patience 30
     python run_pipeline.py mi-experimento --no-export
+    python run_pipeline.py mi-experimento --dataset oasis3
 """
 
 import argparse
@@ -48,12 +49,17 @@ def main():
         "--no-export", action="store_true",
         help="Omitir la exportación del Markdown de contexto",
     )
+    parser.add_argument(
+        "--dataset", type=str, default="oasis1",
+        choices=["oasis1", "oasis3"],
+        help="Dataset a utilizar (default: oasis1)",
+    )
     args = parser.parse_args()
 
     py = sys.executable
 
     # 1. Entrenar
-    train_cmd = [py, "-m", "src.train", "--run", args.name]
+    train_cmd = [py, "-m", "src.train", "--run", args.name, "--dataset", args.dataset]
     if args.epochs is not None:
         train_cmd += ["--epochs", str(args.epochs)]
     if args.patience is not None:
@@ -61,7 +67,7 @@ def main():
     run_step("PASO 1/3 — Entrenamiento", train_cmd)
 
     # 2. Evaluar
-    eval_cmd = [py, "-m", "src.evaluate", "--run", args.name]
+    eval_cmd = [py, "-m", "src.evaluate", "--run", args.name, "--dataset", args.dataset]
     run_step("PASO 2/3 — Evaluación (test set)", eval_cmd)
 
     # 3. Exportar contexto (opcional)
