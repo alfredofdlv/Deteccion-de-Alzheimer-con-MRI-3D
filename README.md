@@ -8,23 +8,23 @@ Sistema de **deteccion temprana de la enfermedad de Alzheimer** a partir de imag
 
 Se emplea un **ResNet-10 3D** (de MONAI) entrenado sobre los datasets [OASIS-1](https://www.oasis-brains.org/) y [OASIS-3](https://www.oasis-brains.org/) para clasificar sujetos en tres categorias:
 
-| Clase | CDR | Descripcion |
-|-------|-----|-------------|
-| CN | 0 | Cognitivamente Normal |
-| MCI | 0.5 | Deterioro Cognitivo Leve |
-| AD | >= 1 | Enfermedad de Alzheimer |
+| Clase | CDR  | Descripcion              |
+| ----- | ---- | ------------------------ |
+| CN    | 0    | Cognitivamente Normal    |
+| MCI   | 0.5  | Deterioro Cognitivo Leve |
+| AD    | >= 1 | Enfermedad de Alzheimer  |
 
 La metrica principal de seleccion de modelo es **macro F1-score**, robusta ante el desbalance de clases.
 
 ### Stack Tecnologico
 
-| Componente | Tecnologia |
-|---|---|
-| Lenguaje | Python 3.10+ |
-| Framework DL | PyTorch |
-| Imagen Medica | MONAI, NiBabel |
-| Data Science | Pandas, NumPy, Scikit-learn |
-| Visualizacion | Matplotlib, Seaborn |
+| Componente    | Tecnologia                  |
+| ------------- | --------------------------- |
+| Lenguaje      | Python 3.10+                |
+| Framework DL  | PyTorch                     |
+| Imagen Medica | MONAI, NiBabel              |
+| Data Science  | Pandas, NumPy, Scikit-learn |
+| Visualizacion | Matplotlib, Seaborn         |
 
 ## Estructura del Proyecto
 
@@ -52,7 +52,6 @@ tfg/
 ├── export_context.py       # Exportar codigo a Markdown
 ├── requirements.txt
 ├── DIARIO.md               # Historial de experimentos
-└── .cursor/rules/          # Reglas para agentes AI
 ```
 
 ## Setup
@@ -79,11 +78,13 @@ pip install -r requirements.txt
 > **IMPORTANTE**: Los datos medicos NO se incluyen en el repositorio por razones de privacidad y tamaño.
 
 **OASIS-1:**
+
 1. Solicita acceso al dataset en [OASIS Brains](https://www.oasis-brains.org/).
 2. Descarga los archivos del dataset OASIS-1.
 3. Coloca los `.tar.gz` (o carpetas extraidas) en `data/OASIS-1/raw/`.
 
 **OASIS-3:**
+
 1. Usa `scripts/download_oasis3.py` o el notebook `notebooks/pipeline_oasis3.ipynb`.
 2. Los datos se organizan en `data/OASIS-3/` en formato BIDS.
 
