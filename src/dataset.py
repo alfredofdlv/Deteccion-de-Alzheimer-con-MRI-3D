@@ -175,6 +175,7 @@ def get_dataloader(
     num_workers: int | None = None,
     use_cache: bool = False,
     dataset: str = "oasis1",
+    subset: int | None = None,
 ) -> DataLoader:
     """
     Crea un DataLoader MONAI listo para iterar.
@@ -188,6 +189,7 @@ def get_dataloader(
                    Recomendado solo si tienes >16 GB de RAM disponible.
                    Por defecto False (usa Dataset estándar).
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
+        subset: Si se indica, limita a los primeros N samples (para pruebas rapidas).
 
     Returns:
         monai.data.DataLoader con batches de:
@@ -202,6 +204,8 @@ def get_dataloader(
         num_workers = cfg.NUM_WORKERS
 
     data_dicts = _build_data_dicts(split, dataset=dataset)
+    if subset is not None and subset < len(data_dicts):
+        data_dicts = data_dicts[:subset]
     transforms = get_transforms(split)
 
     if use_cache:

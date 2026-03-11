@@ -95,6 +95,22 @@ def compute_class_weights(dataset: str = "oasis1") -> torch.Tensor:
 # Train / Evaluate
 # ---------------------------------------------------------------------------
 
+def _progress_log(step: int, total_steps: int, t_start: float, prefix: str,
+                   running_loss: float, correct: int, total_samples: int) -> None:
+    """Imprime progreso intra-epoch cada 10% de batches."""
+    pct = step / total_steps
+    elapsed = time.time() - t_start
+    eta = (elapsed / step) * (total_steps - step) if step > 0 else 0
+    avg_loss = running_loss / total_samples if total_samples > 0 else 0
+    avg_acc = correct / total_samples if total_samples > 0 else 0
+    print(
+        f"\r  {prefix} [{step}/{total_steps}] "
+        f"{pct:>6.1%} | loss: {avg_loss:.4f} | acc: {avg_acc:.2%} | "
+        f"{elapsed:.0f}s / ETA {eta:.0f}s",
+        end="", flush=True,
+    )
+
+
 def train_one_epoch(
     model: nn.Module,
     loader,
@@ -107,8 +123,11 @@ def train_one_epoch(
     running_loss = 0.0
     correct = 0
     total = 0
+    n_batches = len(loader)
+    log_every = max(1, n_batches // 10)
+    t0 = time.time()
 
-    for batch in loader:
+    for i, batch in enumerate(loader, 1):
         images = batch["image"].to(device)
         labels = batch["label"].to(device)
 
@@ -123,6 +142,10 @@ def train_one_epoch(
         correct += (preds == labels).sum().item()
         total += images.size(0)
 
+        if i % log_every == 0 or i == n_batches:
+            _progress_log(i, n_batches, t0, "Train", running_loss, correct, total)
+
+    print()
     return {
         "loss": running_loss / total,
         "accuracy": correct / total,
@@ -140,9 +163,12 @@ def evaluate(
     running_loss = 0.0
     correct = 0
     total = 0
+    n_batches = len(loader)
+    log_every = max(1, n_batches // 5)
+    t0 = time.time()
 
     with torch.no_grad():
-        for batch in loader:
+        for i, batch in enumerate(loader, 1):
             images = batch["image"].to(device)
             labels = batch["label"].to(device)
 
@@ -154,6 +180,10 @@ def evaluate(
             correct += (preds == labels).sum().item()
             total += images.size(0)
 
+            if i % log_every == 0 or i == n_batches:
+                _progress_log(i, n_batches, t0, "Val  ", running_loss, correct, total)
+
+    print()
     return {
         "loss": running_loss / total,
         "accuracy": correct / total,
@@ -263,6 +293,7 @@ def train(
     run_name: str | None = None,
     patience: int = cfg.EARLY_STOPPING_PATIENCE,
     dataset: str = "oasis1",
+    subset: int | None = None,
 ) -> None:
     """
     Función principal de entrenamiento.
@@ -275,6 +306,7 @@ def train(
                   Si None, se genera uno automático con timestamp.
         patience: Epochs sin mejora en val_acc antes de early stopping.
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
+        subset: Limitar cada split a N samples (para pruebas rapidas).
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
@@ -302,7 +334,7 @@ def train(
         print("MODO OVERFIT-ONE-BATCH (sanity check)")
         print("=" * 60)
 
-        loader = get_dataloader("train", batch_size=4, num_workers=0, shuffle=False, dataset=dataset)
+        loader = get_dataloader("train", batch_size=4, num_workers=0, shuffle=False, dataset=dataset, subset=subset)
         single_batch = next(iter(loader))
         images = single_batch["image"].to(device)
         labels = single_batch["label"].to(device)
@@ -352,9 +384,18 @@ def train(
     print(f"Resultados en: {run_dir}")
     print("=" * 60)
 
-    train_loader = get_dataloader("train", num_workers=0, dataset=dataset)
-    val_loader = get_dataloader("val", num_workers=0, dataset=dataset)
-    print(f"[INFO] Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+    t_load = time.time()
+    if subset:
+        print(f"[INFO] Modo subset: limitando a {subset} samples por split")
+    print("[INFO] Cargando datos de entrenamiento...")
+    train_loader = get_dataloader("train", num_workers=0, dataset=dataset, subset=subset)
+    print(f"[INFO] Cargando datos de validacion...")
+    val_loader = get_dataloader("val", num_workers=0, dataset=dataset, subset=subset)
+    print(
+        f"[INFO] Datos listos en {time.time() - t_load:.1f}s — "
+        f"Train: {len(train_loader)} batches ({len(train_loader.dataset)} samples), "
+        f"Val: {len(val_loader)} batches ({len(val_loader.dataset)} samples)"
+    )
 
     # CSV log
     csv_path = run_dir / "training_log.csv"
@@ -474,6 +515,8 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, default="oasis1",
                         choices=["oasis1", "oasis3"],
                         help="Dataset a utilizar (default: oasis1)")
+    parser.add_argument("--subset", type=int, default=None,
+                        help="Limitar a N samples por split (para pruebas rapidas)")
     args = parser.parse_args()
 
     train(
@@ -482,4 +525,5 @@ if __name__ == "__main__":
         run_name=args.run,
         patience=args.patience,
         dataset=args.dataset,
+        subset=args.subset,
     )

@@ -47,17 +47,31 @@ def collect_predictions(
     device: torch.device,
 ) -> tuple[list[int], list[int]]:
     """Ejecuta inferencia y recopila todas las predicciones y labels."""
+    import time
     model.eval()
     all_preds: list[int] = []
     all_labels: list[int] = []
+    n_batches = len(loader)
+    log_every = max(1, n_batches // 5)
+    t0 = time.time()
 
     with torch.no_grad():
-        for batch in loader:
+        for i, batch in enumerate(loader, 1):
             images = batch["image"].to(device)
             outputs = model(images)
             all_preds.extend(outputs.argmax(dim=1).cpu().tolist())
             all_labels.extend(batch["label"].tolist())
 
+            if i % log_every == 0 or i == n_batches:
+                elapsed = time.time() - t0
+                eta = (elapsed / i) * (n_batches - i) if i > 0 else 0
+                print(
+                    f"\r  Eval [{i}/{n_batches}] {i/n_batches:>6.1%} | "
+                    f"{elapsed:.0f}s / ETA {eta:.0f}s",
+                    end="", flush=True,
+                )
+
+    print()
     return all_labels, all_preds
 
 
@@ -104,7 +118,8 @@ def _plot_confusion_matrix(
 # Main evaluation
 # ---------------------------------------------------------------------------
 
-def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1") -> None:
+def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
+                   subset: int | None = None) -> None:
     """
     Evalúa el mejor modelo de un run sobre un split y genera reportes.
 
@@ -112,6 +127,7 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1") 
         run_name: Nombre de la carpeta en outputs/ que contiene best_model.pth.
         split: Split a evaluar ('test' por defecto, también acepta 'val').
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
+        subset: Limitar a N samples (para pruebas rapidas).
     """
     run_dir = cfg.OUTPUTS_DIR / run_name
     model_path = run_dir / "best_model.pth"
@@ -135,7 +151,7 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1") 
     )
 
     # Inferencia
-    loader = get_dataloader(split, shuffle=False, num_workers=0, dataset=dataset)
+    loader = get_dataloader(split, shuffle=False, num_workers=0, dataset=dataset, subset=subset)
     print(f"[INFO] Evaluando sobre '{split}' ({len(loader.dataset)} muestras)...")
 
     all_labels, all_preds = collect_predictions(model, loader, device)
@@ -203,6 +219,11 @@ if __name__ == "__main__":
         choices=["oasis1", "oasis3"],
         help="Dataset a utilizar (default: oasis1)",
     )
+    parser.add_argument(
+        "--subset", type=int, default=None,
+        help="Limitar a N samples (para pruebas rapidas)",
+    )
     args = parser.parse_args()
 
-    evaluate_model(run_name=args.run, split=args.split, dataset=args.dataset)
+    evaluate_model(run_name=args.run, split=args.split, dataset=args.dataset,
+                   subset=args.subset)

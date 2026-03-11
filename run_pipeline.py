@@ -54,6 +54,10 @@ def main():
         choices=["oasis1", "oasis3"],
         help="Dataset a utilizar (default: oasis1)",
     )
+    parser.add_argument(
+        "--subset", type=int, default=None,
+        help="Limitar a N samples por split (para pruebas rapidas)",
+    )
     args = parser.parse_args()
 
     py = sys.executable
@@ -64,10 +68,14 @@ def main():
         train_cmd += ["--epochs", str(args.epochs)]
     if args.patience is not None:
         train_cmd += ["--patience", str(args.patience)]
+    if args.subset is not None:
+        train_cmd += ["--subset", str(args.subset)]
     run_step("PASO 1/3 — Entrenamiento", train_cmd)
 
     # 2. Evaluar
     eval_cmd = [py, "-m", "src.evaluate", "--run", args.name, "--dataset", args.dataset]
+    if args.subset is not None:
+        eval_cmd += ["--subset", str(args.subset)]
     run_step("PASO 2/3 — Evaluación (test set)", eval_cmd)
 
     # 3. Exportar contexto (opcional)
