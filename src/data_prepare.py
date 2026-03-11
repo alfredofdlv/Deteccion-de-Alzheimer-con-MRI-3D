@@ -34,6 +34,7 @@ _SUBJECT_ID_RE = re.compile(r"(OAS1_\d{4}_MR\d)")
 _MASKED_GFC_PATTERN = re.compile(r".*T88_111[/\\].*_masked_gfc\.(img|hdr)$")
 _DISC_TARBALL_RE = re.compile(r"^oasis_cross-sectional_disc\d+\.tar\.gz$")
 _DISC_FOLDER_RE = re.compile(r"^oasis_cross-sectional_disc\d+$")
+_OASIS1_EXPECTED_SUBJECTS = 416
 
 
 # ===================================================================
@@ -268,14 +269,12 @@ def extract_and_standardize() -> None:
         "Verifica que los archivos OASIS estén en la ruta correcta."
     )
 
-    # Nota: la aserción de exactamente 416 es orientativa.
-    # Si faltan discos, el script informa pero no falla fatalmente.
-    if n_pairs == 416:
-        print(f"\n  ✅ VALIDACIÓN OK: {n_pairs} pares (416 esperados).")
+    if n_pairs == _OASIS1_EXPECTED_SUBJECTS:
+        print(f"\n  [OK] VALIDACION: {n_pairs} pares ({_OASIS1_EXPECTED_SUBJECTS} esperados).")
     else:
         print(
-            f"\n  ⚠️  Se encontraron {n_pairs} pares (416 esperados)."
-            f"\n      Puede que falten discos por descargar/extraer."
+            f"\n  [WARN] Se encontraron {n_pairs} pares ({_OASIS1_EXPECTED_SUBJECTS} esperados)."
+            f"\n         Puede que falten discos por descargar/extraer."
         )
 
 
@@ -455,16 +454,16 @@ def stratified_split() -> None:
     leak_val_test = val_ids & test_ids
 
     if leak_train_val or leak_train_test or leak_val_test:
-        print("\n  ❌ DATA LEAKAGE DETECTADO:")
+        print("\n  [ERROR] DATA LEAKAGE DETECTADO:")
         if leak_train_val:
-            print(f"    Train ∩ Val:  {leak_train_val}")
+            print(f"    Train & Val:  {leak_train_val}")
         if leak_train_test:
-            print(f"    Train ∩ Test: {leak_train_test}")
+            print(f"    Train & Test: {leak_train_test}")
         if leak_val_test:
-            print(f"    Val ∩ Test:   {leak_val_test}")
+            print(f"    Val & Test:   {leak_val_test}")
         raise RuntimeError("Data leakage detectado entre splits.")
     else:
-        print("\n  ✅ Anti-leakage check: OK (0 sujetos compartidos entre splits).")
+        print("\n  [OK] Anti-leakage check: 0 sujetos compartidos entre splits.")
 
 
 # ===================================================================

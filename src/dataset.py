@@ -22,8 +22,6 @@ Uso:
 
 from __future__ import annotations
 
-from typing import List
-
 import torch
 from monai.config import KeysCollection
 from monai.data import CacheDataset, DataLoader, Dataset
@@ -133,43 +131,58 @@ def get_transforms_pt(split: str = "train") -> Compose:
     return Compose(transforms)
 
 
-def describe_transforms(split: str = "train") -> str:
+def describe_transforms(split: str = "train", is_pt: bool = False) -> str:
     """
-    Devuelve una descripción legible del pipeline de transforms para un split.
+    Devuelve una descripcion legible del pipeline de transforms para un split.
 
-    Útil para guardar en cada run qué preprocesamiento y augmentation se aplicó.
+    Args:
+        split: Nombre del split ('train', 'val', 'test').
+        is_pt: Si True, describe el flujo para tensores .pt preprocesados.
     """
     lines = [
         f"Pipeline de transforms para split: '{split}'",
         "=" * 55,
-        "",
-        "--- Preprocesamiento (determinístico, todos los splits) ---",
-        f"  1. LoadImaged           keys=['image'], image_only=True",
-        f"  2. EnsureChannelFirstd  keys=['image']",
-        f"  3. Orientationd         keys=['image'], axcodes='RAS'",
-        f"  4. ScaleIntensityRangePercentilesd",
-        f"       keys=['image'], lower=1, upper=99",
-        f"       b_min=0.0, b_max=1.0, clip=True",
-        f"  5. Resized              keys=['image'], spatial_size={cfg.IMAGE_SIZE}",
     ]
+
+    if is_pt:
+        lines += [
+            "",
+            "--- Formato: tensores .pt preprocesados offline ---",
+            f"  1. LoadPTd              keys=['image'] (torch.load)",
+            "",
+            "  Preprocesamiento aplicado offline por preprocess_to_pt.py:",
+            f"    LoadImage, EnsureChannelFirst, Orientation(RAS),",
+            f"    ScaleIntensityRangePercentiles(1-99), Resize{cfg.IMAGE_SIZE}",
+        ]
+    else:
+        lines += [
+            "",
+            "--- Preprocesamiento (deterministico, todos los splits) ---",
+            f"  1. LoadImaged           keys=['image'], image_only=True",
+            f"  2. EnsureChannelFirstd  keys=['image']",
+            f"  3. Orientationd         keys=['image'], axcodes='RAS'",
+            f"  4. ScaleIntensityRangePercentilesd",
+            f"       keys=['image'], lower=1, upper=99",
+            f"       b_min=0.0, b_max=1.0, clip=True",
+            f"  5. Resized              keys=['image'], spatial_size={cfg.IMAGE_SIZE}",
+        ]
 
     if split == "train":
         lines += [
             "",
-            "--- Data Augmentation (estocástico, solo train) ---",
-            f"  6. RandFlipd            keys=['image'], prob=0.5, spatial_axis=0",
-            f"  7. RandRotated          keys=['image'], range_xyz=0.2, prob=0.3",
-            f"  8. RandGaussianNoised   keys=['image'], prob=0.3, mean=0.0, std=0.05",
-            f"  9. RandShiftIntensityd  keys=['image'], offsets=0.1, prob=0.3",
+            "--- Data Augmentation (estocastico, solo train) ---",
+            f"  RandFlipd            keys=['image'], prob=0.5, spatial_axis=0",
+            f"  RandRotated          keys=['image'], range_xyz=0.2, prob=0.3",
+            f"  RandGaussianNoised   keys=['image'], prob=0.3, mean=0.0, std=0.05",
+            f"  RandShiftIntensityd  keys=['image'], offsets=0.1, prob=0.3",
             "",
             "Nota: las transforms Rand* se aplican on-the-fly en cada epoch.",
-            "Cada imagen puede recibir combinaciones distintas cada vez.",
         ]
     else:
         lines += [
             "",
             "--- Sin Data Augmentation ---",
-            f"  (split='{split}': solo preprocesamiento determinístico)",
+            f"  (split='{split}': solo preprocesamiento deterministico)",
         ]
 
     return "\n".join(lines)
@@ -179,7 +192,7 @@ def describe_transforms(split: str = "train") -> str:
 # Data dicts
 # ---------------------------------------------------------------------------
 
-def _build_data_dicts(split: str, dataset: str = "oasis1") -> List[dict]:
+def _build_data_dicts(split: str, dataset: str = "oasis1") -> list[dict]:
     """
     Convierte un CSV de split en la lista de dicts que MONAI espera.
 
@@ -248,16 +261,16 @@ def get_dataloader(
     transforms = get_transforms_pt(split) if is_pt else get_transforms(split)
 
     if use_cache:
-        dataset = CacheDataset(
+        ds = CacheDataset(
             data=data_dicts,
             transform=transforms,
             num_workers=num_workers,
         )
     else:
-        dataset = Dataset(data=data_dicts, transform=transforms)
+        ds = Dataset(data=data_dicts, transform=transforms)
 
     loader = DataLoader(
-        dataset,
+        ds,
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,

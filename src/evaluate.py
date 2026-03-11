@@ -11,6 +11,7 @@ Uso:
 
 from __future__ import annotations
 
+import time
 import warnings
 from pathlib import Path
 
@@ -47,7 +48,6 @@ def collect_predictions(
     device: torch.device,
 ) -> tuple[list[int], list[int]]:
     """Ejecuta inferencia y recopila todas las predicciones y labels."""
-    import time
     model.eval()
     all_preds: list[int] = []
     all_labels: list[int] = []
@@ -145,10 +145,15 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
     model = Simple3DCNN().to(device)
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["model_state_dict"])
-    print(
+    val_f1 = checkpoint.get("val_f1")
+    ckpt_info = (
         f"[INFO] Modelo cargado desde epoch {checkpoint['epoch']} "
-        f"(val_loss={checkpoint['val_loss']:.4f}, val_acc={checkpoint['val_accuracy']:.2%})"
+        f"(val_loss={checkpoint['val_loss']:.4f}, val_acc={checkpoint['val_accuracy']:.2%}"
     )
+    if val_f1 is not None:
+        ckpt_info += f", val_f1={val_f1:.4f}"
+    ckpt_info += ")"
+    print(ckpt_info)
 
     # Inferencia
     loader = get_dataloader(split, shuffle=False, num_workers=0, dataset=dataset, subset=subset)
@@ -204,7 +209,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Evaluar Simple3DCNN sobre test/val set"
+        description="Evaluar AlzheimerResNet sobre test/val set"
     )
     parser.add_argument(
         "--run", type=str, required=True,

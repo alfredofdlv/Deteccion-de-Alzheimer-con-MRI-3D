@@ -1,51 +1,58 @@
-# Detección Temprana de Alzheimer mediante Redes Neuronales Convolucionales 3D
+# Deteccion Temprana de Alzheimer mediante Redes Neuronales Convolucionales 3D
 
 **Trabajo de Fin de Grado**
 
-## Descripción
+## Descripcion
 
-Sistema de **detección temprana de la enfermedad de Alzheimer** a partir de imágenes de Resonancia Magnética (MRI) 3D, utilizando técnicas de Deep Learning.
+Sistema de **deteccion temprana de la enfermedad de Alzheimer** a partir de imagenes de Resonancia Magnetica (MRI) 3D, utilizando tecnicas de Deep Learning.
 
-Se emplea una **red neuronal convolucional 3D** (Simple3DCNN) entrenada sobre el dataset [OASIS-1](https://www.oasis-brains.org/) para clasificar sujetos en tres categorías:
+Se emplea un **ResNet-10 3D** (de MONAI) entrenado sobre los datasets [OASIS-1](https://www.oasis-brains.org/) y [OASIS-3](https://www.oasis-brains.org/) para clasificar sujetos en tres categorias:
 
-| Clase | CDR | Descripción |
+| Clase | CDR | Descripcion |
 |-------|-----|-------------|
 | CN | 0 | Cognitivamente Normal |
 | MCI | 0.5 | Deterioro Cognitivo Leve |
 | AD | >= 1 | Enfermedad de Alzheimer |
 
-### Stack Tecnológico
+La metrica principal de seleccion de modelo es **macro F1-score**, robusta ante el desbalance de clases.
 
-| Componente | Tecnología |
+### Stack Tecnologico
+
+| Componente | Tecnologia |
 |---|---|
 | Lenguaje | Python 3.10+ |
 | Framework DL | PyTorch |
-| Imagen Médica | MONAI, NiBabel |
+| Imagen Medica | MONAI, NiBabel |
 | Data Science | Pandas, NumPy, Scikit-learn |
-| Visualización | Matplotlib, Seaborn |
+| Visualizacion | Matplotlib, Seaborn |
 
 ## Estructura del Proyecto
 
 ```
 tfg/
 ├── src/
-│   ├── config.py         # Configuración centralizada
-│   ├── data_prepare.py   # ETL: extracción, CSV maestro, splits
-│   ├── data_utils.py     # Utilidades de carga
-│   ├── dataset.py        # MONAI Dataset y transforms
-│   ├── model.py          # Simple3DCNN
-│   ├── train.py          # Training loop
-│   └── evaluate.py       # Evaluación y métricas
-├── notebooks/            # Jupyter notebooks de exploración
-├── Docs/                 # Documentación interna
-│   ├── Context.md        # Fuente de verdad del proyecto
-│   ├── Analisis_Proyecto.md
-│   └── Roadmap.md
-├── outputs/              # Logs, pesos (.pth), gráficas por experimento
-├── data/                 # Datos (no versionados)
-├── run_pipeline.py       # Pipeline CLI: train -> evaluate
+│   ├── config.py           # Configuracion centralizada
+│   ├── data_prepare.py     # ETL OASIS-1: extraccion, CSV maestro, splits
+│   ├── data_utils.py       # Utilidades de carga de splits
+│   ├── dataset.py          # MONAI Dataset, transforms, DataLoaders
+│   ├── model.py            # AlzheimerResNet (ResNet-10 3D)
+│   ├── train.py            # Training loop (macro F1, early stopping)
+│   └── evaluate.py         # Evaluacion y metricas
+├── scripts/                # Scripts auxiliares (descarga, exploracion)
+├── notebooks/              # Jupyter notebooks de exploración
+│   └── pipeline_oasis3.ipynb  # Pipeline completo OASIS-3
+├── Docs/                   # Documentacion interna
+│   ├── Context.md          # Fuente de verdad del proyecto
+│   └── benchmark.md        # Tiempos de ejecucion medidos
+├── outputs/                # Logs, pesos (.pth), graficas por experimento
+├── data/                   # Datos (no versionados)
+├── run_pipeline.py         # Pipeline CLI: train -> evaluate -> export
+├── benchmark.py            # Medicion de tiempos del pipeline
+├── preprocess_to_pt.py     # Preprocesamiento offline a tensores .pt
+├── export_context.py       # Exportar codigo a Markdown
 ├── requirements.txt
-└── .cursor/rules/        # Reglas para agentes AI
+├── DIARIO.md               # Historial de experimentos
+└── .cursor/rules/          # Reglas para agentes AI
 ```
 
 ## Setup
@@ -67,23 +74,37 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 3. Descargar y colocar los datos de OASIS-1
+### 3. Descargar y colocar los datos
 
-> **IMPORTANTE**: Los datos médicos NO se incluyen en el repositorio por razones de privacidad y tamaño.
+> **IMPORTANTE**: Los datos medicos NO se incluyen en el repositorio por razones de privacidad y tamaño.
 
+**OASIS-1:**
 1. Solicita acceso al dataset en [OASIS Brains](https://www.oasis-brains.org/).
-2. Descarga los archivos del dataset **OASIS-1**.
-3. Coloca los `.tar.gz` (o carpetas extraídas) en `data/OASIS-1/raw/`.
+2. Descarga los archivos del dataset OASIS-1.
+3. Coloca los `.tar.gz` (o carpetas extraidas) en `data/OASIS-1/raw/`.
+
+**OASIS-3:**
+1. Usa `scripts/download_oasis3.py` o el notebook `notebooks/pipeline_oasis3.ipynb`.
+2. Los datos se organizan en `data/OASIS-3/` en formato BIDS.
 
 ### 4. Ejecutar el pipeline ETL
 
 ```bash
+# OASIS-1: extrae imagenes, genera CSV maestro, crea splits
 python -m src.data_prepare
+
+# OASIS-3: ejecutar el notebook pipeline_oasis3.ipynb
 ```
 
-Esto extrae las imágenes `masked_gfc`, genera el CSV maestro y crea los splits train/val/test.
+### 5. Preprocesamiento offline (recomendado)
 
-### 5. Verificar el entorno
+Convierte las imagenes NIfTI a tensores `.pt` para acelerar el entrenamiento:
+
+```bash
+python preprocess_to_pt.py --dataset oasis3
+```
+
+### 6. Verificar el entorno
 
 ```bash
 python -m src.model     # Verifica que el modelo compila
@@ -94,36 +115,43 @@ python -m src.model     # Verifica que el modelo compila
 ### Entrenamiento
 
 ```bash
-python -m src.train --epochs 50 --run mi_experimento --patience 25
+python -m src.train --epochs 50 --run mi_experimento --patience 25 --dataset oasis3
 ```
 
-### Evaluación
+### Evaluacion
 
 ```bash
-python -m src.evaluate --run mi_experimento --split test
+python -m src.evaluate --run mi_experimento --split test --dataset oasis3
 ```
 
 ### Pipeline completo
 
 ```bash
-python run_pipeline.py mi_experimento
+python run_pipeline.py mi_experimento --dataset oasis3
 ```
 
 ### Sanity check (overfit one batch)
 
 ```bash
-python -m src.train --overfit
+python -m src.train --overfit --dataset oasis3
+```
+
+### Benchmark de tiempos
+
+```bash
+python benchmark.py --dataset oasis3 --batches 15 --label "Mi config"
 ```
 
 ## Estado actual
 
-- Sprints 1-3 completados (datos, pipeline, modelo baseline)
-- Sprint 4 en progreso (augmentation, métricas, experimentos de regularización)
-- Sprint 5 pendiente (Grad-CAM / Explainability)
-- Mejor test accuracy: ~56%, macro F1: ~0.43
+- Datasets: OASIS-1 (235 sujetos) y OASIS-3 (2450 sesiones MRI)
+- Modelo: AlzheimerResNet (ResNet-10 3D de MONAI, ~14.3M parametros)
+- Metrica de seleccion: macro F1-score
+- Datos preprocesados offline a tensores .pt
+- Sprints 1-4 completados, Sprint 5 (Explainability) pendiente
 
 Ver `Docs/Context.md` para el estado detallado y `DIARIO.md` para el historial de experimentos.
 
 ## Licencia
 
-Proyecto académico (TFG). Uso con fines educativos y de investigación.
+Proyecto academico (TFG). Uso con fines educativos y de investigacion.

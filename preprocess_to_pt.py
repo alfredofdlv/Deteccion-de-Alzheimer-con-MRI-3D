@@ -31,6 +31,8 @@ from monai.transforms import (
 
 from src.config import cfg
 
+APPROX_MB_PER_IMAGE = 3.4
+
 
 def build_preprocess_pipeline() -> Compose:
     """Las mismas 5 transforms determinísticas que get_transforms(), version no-dict."""
@@ -92,7 +94,7 @@ def main():
     total = len(unique_paths)
     print(f"[INFO] {total} imagenes unicas a preprocesar para '{args.dataset}'")
     print(f"[INFO] Destino: {out_dir}")
-    print(f"[INFO] Tamaño estimado: ~{total * 3.4 / 1024:.1f} GB\n")
+    print(f"[INFO] Tamaño estimado: ~{total * APPROX_MB_PER_IMAGE / 1024:.1f} GB\n")
 
     t_start = time.time()
     success = 0

@@ -66,7 +66,7 @@ class ProjectConfig:
     LEARNING_RATE: float = 1e-4
     WEIGHT_DECAY: float = 1e-4         # Regularización L2 (penalización sobre norma de pesos)
     NUM_EPOCHS: int = 50
-    EARLY_STOPPING_PATIENCE: int = 25  # Epochs sin mejora en val_loss antes de parar
+    EARLY_STOPPING_PATIENCE: int = 25  # Epochs sin mejora en val macro F1 antes de parar
 
     # ========================
     # Clases del dataset OASIS-1
@@ -88,9 +88,9 @@ class ProjectConfig:
             f"  RANDOM_SEED         = {self.RANDOM_SEED}\n"
             f"  IMAGE_SIZE          = {self.IMAGE_SIZE}\n"
             f"  BATCH_SIZE          = {self.BATCH_SIZE}\n"
+            f"  NUM_WORKERS         = {self.NUM_WORKERS}\n"
             f"  NUM_CLASSES         = {self.NUM_CLASSES}\n"
-            f"  OASIS_RAW_DIR       = {self.OASIS_RAW_DIR}\n"
-            f"  PROCESSED_IMAGES_DIR= {self.PROCESSED_IMAGES_DIR}\n"
+            f"  PREPROCESSED_DIR    = {self.PREPROCESSED_DIR}\n"
             f"  OUTPUTS_DIR         = {self.OUTPUTS_DIR}\n"
             f")"
         )

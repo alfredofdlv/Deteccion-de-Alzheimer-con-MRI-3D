@@ -97,7 +97,6 @@ desktop.ini
 .test-cookies.txt
 
 # -------------------------------------------------------
-# Archivos de exploracion (scripts auxiliares, no del pipeline)
+# Archivos de exploracion auxiliares
 # -------------------------------------------------------
-explorar_non_imaging.py
 resumen_non_imaging_csvs.txt

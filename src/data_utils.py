@@ -1,9 +1,9 @@
 """
-data_utils.py — Utilidades para carga de datos y gestión de rutas.
+data_utils.py — Utilidades para carga de datos y gestion de rutas.
 
 Funciones auxiliares para:
-- Leer CSVs de particiones (train/val/test).
-- Construir rutas absolutas a los archivos ANALYZE (.img/.hdr).
+- Leer CSVs de particiones (train/val/test), con soporte para
+  datos originales (NIfTI/ANALYZE) y preprocesados (.pt).
 - Verificar la integridad de los datos procesados.
 
 Uso:
@@ -11,7 +11,6 @@ Uso:
 """
 
 from pathlib import Path
-from typing import List, Tuple
 
 import pandas as pd
 
@@ -20,14 +19,14 @@ from src.config import cfg
 
 def load_split(split_name: str, dataset: str = "oasis1") -> pd.DataFrame:
     """
-    Carga un CSV de partición desde data/splits/.
+    Carga un CSV de particion desde data/splits/.
 
     Busca primero la version preprocesada (_pt.csv) y, si no existe,
     usa la original. Esto permite usar tensores .pt automaticamente
     cuando estan disponibles.
 
     Args:
-        split_name: Nombre del split sin extensión (ej. 'train', 'val', 'test').
+        split_name: Nombre del split sin extension (ej. 'train', 'val', 'test').
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
                  'oasis1' busca {split_name}.csv,
                  otros buscan {dataset}_{split_name}.csv.
@@ -50,43 +49,18 @@ def load_split(split_name: str, dataset: str = "oasis1") -> pd.DataFrame:
 
     if not csv_path.exists():
         raise FileNotFoundError(
-            f"No se encontró el archivo de split: {csv_path}\n"
+            f"No se encontro el archivo de split: {csv_path}\n"
             f"Dataset: {dataset}, split: {split_name}"
         )
     return pd.read_csv(csv_path)
 
 
-def build_image_path(subject_id: str) -> Path:
+def verify_data_integrity() -> tuple[int, list[str]]:
     """
-    Construye la ruta absoluta al archivo .img procesado de un sujeto OASIS.
-
-    Args:
-        subject_id: Identificador del sujeto OASIS (ej. 'OAS1_0001_MR1').
+    Verifica cuantos pares .img/.hdr validos hay en data/processed/images/.
 
     Returns:
-        Path al archivo ANALYZE (.img) en data/processed/images/.
-    """
-    return cfg.PROCESSED_IMAGES_DIR / f"{subject_id}.img"
-
-
-def list_available_subjects() -> List[str]:
-    """
-    Lista todos los sujetos disponibles en data/processed/images/.
-
-    Returns:
-        Lista de subject_ids (sin extensión) de los .img procesados.
-    """
-    if not cfg.PROCESSED_IMAGES_DIR.exists():
-        return []
-    return sorted([p.stem for p in cfg.PROCESSED_IMAGES_DIR.glob("*.img")])
-
-
-def verify_data_integrity() -> Tuple[int, List[str]]:
-    """
-    Verifica cuántos pares .img/.hdr válidos hay en data/processed/images/.
-
-    Returns:
-        Tupla con (número de pares completos, lista de subject_ids con par).
+        Tupla con (numero de pares completos, lista de subject_ids con par).
     """
     if not cfg.PROCESSED_IMAGES_DIR.exists():
         return 0, []
@@ -94,7 +68,5 @@ def verify_data_integrity() -> Tuple[int, List[str]]:
     img_files = {p.stem for p in cfg.PROCESSED_IMAGES_DIR.glob("*.img")}
     hdr_files = {p.stem for p in cfg.PROCESSED_IMAGES_DIR.glob("*.hdr")}
 
-    # Solo contar pares completos (.img + .hdr)
     complete_pairs = sorted(img_files & hdr_files)
     return len(complete_pairs), complete_pairs
-

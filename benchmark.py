@@ -215,7 +215,7 @@ def _generate_section(r: dict) -> str:
     lines += [
         f"| Fase | Tiempo |",
         f"|---|---|",
-        f"| Carga batch | {r['avg_batch_load_s']:.4f}s (min: {r['min_batch_load_s']}, max: {r['max_batch_load_s']}) |",
+        f"| Carga batch | {r['avg_batch_load_s']:.4f}s (min: {r['min_batch_load_s']:.4f}, max: {r['max_batch_load_s']:.4f}) |",
         f"| Forward pass | {r['avg_forward_s']:.4f}s |",
         f"| Train step completo | {r['avg_train_step_s']:.4f}s |",
         f"",
