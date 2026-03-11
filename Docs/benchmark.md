@@ -97,3 +97,26 @@ de I/O pueden mejorar significativamente.*
 | **Total/epoch** | **160s (2.7 min)** |
 | 50 epochs | 2.2 horas |
 | 100 epochs | 4.4 horas |
+
+---
+
+## ResNet10 + .pt + 4 workers
+
+> 2026-03-11 16:54:21
+
+**Config**: .pt (preprocessed) | batch_size=4 | num_workers=4 | device=cuda
+(NVIDIA GeForce RTX 2060, 6.4 GB VRAM)
+
+| Fase | Tiempo |
+|---|---|
+| Carga batch | 0.0554s (min: 0.0, max: 0.2565) |
+| Forward pass | 0.2676s |
+| Train step completo | 9.4661s |
+
+| Estimacion | Tiempo |
+|---|---|
+| Train/epoch (433 batches) | 4123s (68.7 min) |
+| Val/epoch (93 batches) | 30s (0.5 min) |
+| **Total/epoch** | **4153s (69.2 min)** |
+| 50 epochs | 57.7 horas |
+| 100 epochs | 115.4 horas |

@@ -1,16 +1,19 @@
 """
-train.py — Training loop para Simple3DCNN sobre OASIS-1 / OASIS-3.
+train.py — Training loop para AlzheimerResNet sobre OASIS-1 / OASIS-3.
 
-Genera automáticamente en outputs/<run_name>/:
-    - training_log.csv       — métricas por epoch
-    - curves_loss.png        — gráfica de loss (train vs val)
-    - curves_accuracy.png    — gráfica de accuracy (train vs val)
-    - best_model.pth         — pesos del mejor modelo (mayor val_acc)
+Metrica de seleccion de modelo: macro F1-score (robusto ante class imbalance).
+
+Genera automaticamente en outputs/<run_name>/:
+    - training_log.csv       — metricas por epoch
+    - curves_loss.png        — grafica de loss (train vs val)
+    - curves_accuracy.png    — grafica de accuracy (train vs val)
+    - curves_f1.png          — grafica de macro F1 (train vs val)
+    - best_model.pth         — pesos del mejor modelo (mayor val macro F1)
     - training_summary.txt   — resumen legible del entrenamiento
 
-Modos de ejecución:
+Modos de ejecucion:
     python -m src.train --overfit                   # sanity check
-    python -m src.train --epochs 2 --run test_2ep   # prueba rápida
+    python -m src.train --epochs 2 --run test_2ep   # prueba rapida
     python -m src.train --epochs 100 --run full     # entrenamiento largo
     python -m src.train --patience 15 --run exp1    # patience custom
 """
@@ -23,7 +26,6 @@ import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# Silenciar warnings repetitivos de ITK/C++ sobre archivos Analyze
 import itk
 itk.ProcessObject.SetGlobalWarningDisplay(False)
 warnings.filterwarnings("ignore", message=".*pin_memory.*")
@@ -34,6 +36,7 @@ import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
+from sklearn.metrics import f1_score
 
 from src.config import cfg
 from src.data_utils import load_split
@@ -46,18 +49,18 @@ from src.model import Simple3DCNN
 # ---------------------------------------------------------------------------
 
 class EarlyStopping:
-    """Para el entrenamiento si val_acc no mejora en `patience` epochs consecutivos."""
+    """Para el entrenamiento si val macro F1 no mejora en `patience` epochs."""
 
     def __init__(self, patience: int = cfg.EARLY_STOPPING_PATIENCE):
         self.patience = patience
-        self.best_acc = 0.0
+        self.best_f1 = 0.0
         self.counter = 0
         self.triggered = False
 
-    def step(self, val_acc: float) -> bool:
+    def step(self, val_f1: float) -> bool:
         """Retorna True si se debe parar el entrenamiento."""
-        if val_acc > self.best_acc:
-            self.best_acc = val_acc
+        if val_f1 > self.best_f1:
+            self.best_f1 = val_f1
             self.counter = 0
         else:
             self.counter += 1
@@ -118,11 +121,13 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
 ) -> dict:
-    """Ejecuta un epoch de entrenamiento. Retorna dict con loss y accuracy medias."""
+    """Ejecuta un epoch de entrenamiento. Retorna dict con loss, accuracy y macro_f1."""
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
+    all_preds: list[int] = []
+    all_labels: list[int] = []
     n_batches = len(loader)
     log_every = max(1, n_batches // 10)
     t0 = time.time()
@@ -141,14 +146,18 @@ def train_one_epoch(
         preds = outputs.argmax(dim=1)
         correct += (preds == labels).sum().item()
         total += images.size(0)
+        all_preds.extend(preds.cpu().tolist())
+        all_labels.extend(labels.cpu().tolist())
 
         if i % log_every == 0 or i == n_batches:
             _progress_log(i, n_batches, t0, "Train", running_loss, correct, total)
 
+    macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     print()
     return {
         "loss": running_loss / total,
         "accuracy": correct / total,
+        "macro_f1": macro_f1,
     }
 
 
@@ -158,11 +167,13 @@ def evaluate(
     criterion: nn.Module,
     device: torch.device,
 ) -> dict:
-    """Evalúa el modelo sin gradientes. Retorna dict con loss y accuracy."""
+    """Evalua el modelo sin gradientes. Retorna dict con loss, accuracy y macro_f1."""
     model.eval()
     running_loss = 0.0
     correct = 0
     total = 0
+    all_preds: list[int] = []
+    all_labels: list[int] = []
     n_batches = len(loader)
     log_every = max(1, n_batches // 5)
     t0 = time.time()
@@ -179,14 +190,18 @@ def evaluate(
             preds = outputs.argmax(dim=1)
             correct += (preds == labels).sum().item()
             total += images.size(0)
+            all_preds.extend(preds.cpu().tolist())
+            all_labels.extend(labels.cpu().tolist())
 
             if i % log_every == 0 or i == n_batches:
                 _progress_log(i, n_batches, t0, "Val  ", running_loss, correct, total)
 
+    macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
     print()
     return {
         "loss": running_loss / total,
         "accuracy": correct / total,
+        "macro_f1": macro_f1,
     }
 
 
@@ -195,18 +210,21 @@ def evaluate(
 # ---------------------------------------------------------------------------
 
 def _save_plots(history: list[dict], run_dir: Path) -> None:
-    """Genera y guarda gráficas de loss y accuracy."""
+    """Genera y guarda graficas de loss, accuracy y macro F1."""
     epochs = [r["epoch"] for r in history]
     train_loss = [r["train_loss"] for r in history]
     val_loss = [r["val_loss"] for r in history]
     train_acc = [r["train_acc"] * 100 for r in history]
     val_acc = [r["val_acc"] * 100 for r in history]
+    train_f1 = [r["train_f1"] * 100 for r in history]
+    val_f1 = [r["val_f1"] * 100 for r in history]
+
+    best_idx = max(range(len(val_f1)), key=lambda i: val_f1[i])
 
     # --- Loss ---
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(epochs, train_loss, "o-", label="Train Loss", linewidth=2, markersize=4)
     ax.plot(epochs, val_loss, "s-", label="Val Loss", linewidth=2, markersize=4)
-    best_idx = max(range(len(val_acc)), key=lambda i: val_acc[i])
     ax.axvline(x=epochs[best_idx], color="red", linestyle="--", alpha=0.5,
                label=f"Best epoch ({epochs[best_idx]})")
     ax.set_xlabel("Epoch", fontsize=12)
@@ -234,12 +252,28 @@ def _save_plots(history: list[dict], run_dir: Path) -> None:
     fig.savefig(run_dir / "curves_accuracy.png", dpi=150)
     plt.close(fig)
 
+    # --- Macro F1 ---
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(epochs, train_f1, "o-", label="Train F1 (macro)", linewidth=2, markersize=4)
+    ax.plot(epochs, val_f1, "s-", label="Val F1 (macro)", linewidth=2, markersize=4)
+    ax.axvline(x=epochs[best_idx], color="red", linestyle="--", alpha=0.5,
+               label=f"Best epoch ({epochs[best_idx]})")
+    ax.set_xlabel("Epoch", fontsize=12)
+    ax.set_ylabel("Macro F1 (%)", fontsize=12)
+    ax.set_title("Training & Validation Macro F1-Score", fontsize=14)
+    ax.legend(fontsize=11)
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(0, 105)
+    fig.tight_layout()
+    fig.savefig(run_dir / "curves_f1.png", dpi=150)
+    plt.close(fig)
+
 
 def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
                   n_params: int, elapsed_total: float, class_weights: list,
                   early_stopped: bool = False, patience: int = 0) -> None:
     """Genera un archivo de resumen legible."""
-    best = max(history, key=lambda r: r["val_acc"])
+    best = max(history, key=lambda r: r["val_f1"])
     last = history[-1]
 
     stop_reason = f"Early stopping (patience={patience})" if early_stopped else "Completado"
@@ -258,22 +292,27 @@ def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
         f"Image size:         {cfg.IMAGE_SIZE}",
         f"Epochs:             {len(history)}",
         f"Finalizacion:       {stop_reason}",
+        f"Metrica seleccion:  Macro F1-Score",
         f"Tiempo total:       {elapsed_total:.0f}s ({elapsed_total/60:.1f} min)",
         f"Tiempo por epoch:   {elapsed_total/len(history):.1f}s",
         "",
-        "--- Mejor Epoch ---",
+        "--- Mejor Epoch (por macro F1) ---",
         f"  Epoch:            {best['epoch']}",
         f"  Train Loss:       {best['train_loss']:.4f}",
         f"  Train Acc:        {best['train_acc']:.2%}",
+        f"  Train F1 (macro): {best['train_f1']:.4f}",
         f"  Val Loss:         {best['val_loss']:.4f}",
         f"  Val Acc:          {best['val_acc']:.2%}",
+        f"  Val F1 (macro):   {best['val_f1']:.4f}",
         "",
         "--- Ultimo Epoch ---",
         f"  Epoch:            {last['epoch']}",
         f"  Train Loss:       {last['train_loss']:.4f}",
         f"  Train Acc:        {last['train_acc']:.2%}",
+        f"  Train F1 (macro): {last['train_f1']:.4f}",
         f"  Val Loss:         {last['val_loss']:.4f}",
         f"  Val Acc:          {last['val_acc']:.2%}",
+        f"  Val F1 (macro):   {last['val_f1']:.4f}",
         "",
         f"Archivos generados en: {run_dir}",
         "=" * 60,
@@ -296,15 +335,15 @@ def train(
     subset: int | None = None,
 ) -> None:
     """
-    Función principal de entrenamiento.
+    Funcion principal de entrenamiento.
 
     Args:
-        num_epochs: Número máximo de epochs.
-        overfit_one_batch: Si True, entrena solo con 4 imágenes durante
+        num_epochs: Numero maximo de epochs.
+        overfit_one_batch: Si True, entrena solo con 4 imagenes durante
                           100 epochs (sanity check de convergencia).
-        run_name: Nombre de la carpeta dentro de outputs/ para esta ejecución.
-                  Si None, se genera uno automático con timestamp.
-        patience: Epochs sin mejora en val_acc antes de early stopping.
+        run_name: Nombre de la carpeta dentro de outputs/ para esta ejecucion.
+                  Si None, se genera uno automatico con timestamp.
+        patience: Epochs sin mejora en val macro F1 antes de early stopping.
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
         subset: Limitar cada split a N samples (para pruebas rapidas).
     """
@@ -320,7 +359,7 @@ def train(
     print(f"[INFO] Parametros entrenables: {n_params:,}")
 
     class_weights = compute_class_weights(dataset=dataset).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights,label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY,
     )
@@ -328,7 +367,7 @@ def train(
         optimizer, mode="min", factor=0.5, patience=5,
     )
 
-    # ── Overfit-one-batch mode ───────────────────────────────────────────
+    # -- Overfit-one-batch mode -----------------------------------------------
     if overfit_one_batch:
         print("\n" + "=" * 60)
         print("MODO OVERFIT-ONE-BATCH (sanity check)")
@@ -360,12 +399,12 @@ def train(
 
         print(f"\n  Final — Loss: {loss.item():.6f}  Acc: {acc:.2%}")
         if loss.item() < 0.05 and acc == 1.0:
-            print("  === CHECKPOINT 3.2 PASSED ===")
+            print("  === CHECKPOINT PASSED ===")
         else:
             print("  [WARN] No convergio completamente. Revisar el modelo.")
         return
 
-    # ── Entrenamiento completo ───────────────────────────────────────────
+    # -- Entrenamiento completo -----------------------------------------------
     if run_name is None:
         run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
     run_dir = cfg.OUTPUTS_DIR / run_name
@@ -373,7 +412,6 @@ def train(
 
     early_stopper = EarlyStopping(patience=patience)
 
-    # Guardar ficha de transforms usadas en este run
     transforms_desc = describe_transforms("train")
     (run_dir / "transforms_config.txt").write_text(
         transforms_desc + "\n", encoding="utf-8",
@@ -381,6 +419,7 @@ def train(
 
     print("\n" + "=" * 60)
     print(f"ENTRENAMIENTO — max {num_epochs} epochs (early stopping: patience={patience})")
+    print(f"Metrica de seleccion: macro F1-score")
     print(f"Resultados en: {run_dir}")
     print("=" * 60)
 
@@ -397,17 +436,19 @@ def train(
         f"Val: {len(val_loader)} batches ({len(val_loader.dataset)} samples)"
     )
 
-    # CSV log
     csv_path = run_dir / "training_log.csv"
     csv_file = open(csv_path, "w", newline="", encoding="utf-8")
     csv_writer = csv.DictWriter(
         csv_file,
-        fieldnames=["epoch", "train_loss", "train_acc", "val_loss", "val_acc", "epoch_time_s", "is_best"],
+        fieldnames=[
+            "epoch", "train_loss", "train_acc", "train_f1",
+            "val_loss", "val_acc", "val_f1", "epoch_time_s", "is_best",
+        ],
     )
     csv_writer.writeheader()
 
     history: list[dict] = []
-    best_val_acc = 0.0
+    best_val_f1 = 0.0
     best_epoch = 0
     t_start = time.time()
 
@@ -418,14 +459,16 @@ def train(
         val_metrics = evaluate(model, val_loader, criterion, device)
 
         elapsed = time.time() - t0
-        is_best = val_metrics["accuracy"] > best_val_acc
+        is_best = val_metrics["macro_f1"] > best_val_f1
 
         row = {
             "epoch": epoch,
             "train_loss": round(train_metrics["loss"], 6),
             "train_acc": round(train_metrics["accuracy"], 6),
+            "train_f1": round(train_metrics["macro_f1"], 6),
             "val_loss": round(val_metrics["loss"], 6),
             "val_acc": round(val_metrics["accuracy"], 6),
+            "val_f1": round(val_metrics["macro_f1"], 6),
             "epoch_time_s": round(elapsed, 1),
             "is_best": is_best,
         }
@@ -434,7 +477,7 @@ def train(
         csv_file.flush()
 
         if is_best:
-            best_val_acc = val_metrics["accuracy"]
+            best_val_f1 = val_metrics["macro_f1"]
             best_epoch = epoch
             torch.save({
                 "epoch": epoch,
@@ -442,10 +485,11 @@ def train(
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
                 "val_loss": val_metrics["loss"],
-                "val_accuracy": best_val_acc,
+                "val_accuracy": val_metrics["accuracy"],
+                "val_f1": best_val_f1,
             }, run_dir / "best_model.pth")
 
-        should_stop = early_stopper.step(val_metrics["accuracy"])
+        should_stop = early_stopper.step(val_metrics["macro_f1"])
         scheduler.step(val_metrics["loss"])
 
         # -- Logging informativo --
@@ -464,17 +508,17 @@ def train(
         print(
             f"\n--- Epoch {epoch}/{num_epochs} "
             f"({elapsed:.0f}s | total: {elapsed_str} | ETA: {eta_str}) ---\n"
-            f"  Train  ->  Loss: {train_metrics['loss']:.4f}  |  Acc: {train_metrics['accuracy']:.2%}\n"
-            f"  Val    ->  Loss: {val_metrics['loss']:.4f}  |  Acc: {val_metrics['accuracy']:.2%}{best_marker}\n"
-            f"  LR: {current_lr:.2e}  |  Best: epoch {best_epoch} (val_acc={best_val_acc:.2%})  "
+            f"  Train  ->  Loss: {train_metrics['loss']:.4f}  |  Acc: {train_metrics['accuracy']:.2%}  |  F1: {train_metrics['macro_f1']:.4f}\n"
+            f"  Val    ->  Loss: {val_metrics['loss']:.4f}  |  Acc: {val_metrics['accuracy']:.2%}  |  F1: {val_metrics['macro_f1']:.4f}{best_marker}\n"
+            f"  LR: {current_lr:.2e}  |  Best: epoch {best_epoch} (val_f1={best_val_f1:.4f})  "
             f"| Early stop: {es_bar} {es_counter}/{patience}"
         )
 
         if should_stop:
             print(
                 f"\n{'=' * 60}\n"
-                f"[EARLY STOPPING] Val acc no mejoro en {patience} epochs.\n"
-                f"Mejor epoch: {best_epoch} (val_acc={best_val_acc:.2%})\n"
+                f"[EARLY STOPPING] Val macro F1 no mejoro en {patience} epochs.\n"
+                f"Mejor epoch: {best_epoch} (val_f1={best_val_f1:.4f})\n"
                 f"{'=' * 60}"
             )
             break
@@ -482,7 +526,6 @@ def train(
     csv_file.close()
     elapsed_total = time.time() - t_start
 
-    # Generar graficas y resumen
     _save_plots(history, run_dir)
     _save_summary(
         history, run_dir, device, n_params, elapsed_total,
@@ -503,7 +546,7 @@ def train(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Entrenar Simple3DCNN sobre OASIS-1 / OASIS-3")
+    parser = argparse.ArgumentParser(description="Entrenar AlzheimerResNet sobre OASIS-1 / OASIS-3")
     parser.add_argument("--epochs", type=int, default=cfg.NUM_EPOCHS,
                         help=f"Numero de epochs (default: {cfg.NUM_EPOCHS})")
     parser.add_argument("--overfit", action="store_true",
