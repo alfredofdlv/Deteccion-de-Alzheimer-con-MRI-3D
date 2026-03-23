@@ -66,10 +66,21 @@ class ProjectConfig:
     LEARNING_RATE: float = 1e-4
     WEIGHT_DECAY: float = 1e-4         # Regularización L2 (penalización sobre norma de pesos)
     NUM_EPOCHS: int = 50
-    EARLY_STOPPING_PATIENCE: int = 25  # Epochs sin mejora en val macro F1 antes de parar
+    EARLY_STOPPING_PATIENCE: int = 25  # Epochs sin mejora en val clinical F1 antes de parar
 
     # ========================
-    # Clases del dataset OASIS-1
+    # Prioridad clinica
+    # ========================
+    # Multiplicadores sobre los class weights de la loss (penalizacion asimetrica).
+    # Fuerzan a la red a "sufrir" mas cuando falla en clases criticas.
+    CLINICAL_WEIGHT_MULTIPLIERS: dict = {0: 1.0, 1: 1.5, 2: 2.0}
+
+    # Pesos de la metrica clinical F1 para seleccion de modelo.
+    # Priorizan deteccion de AD (60%) sobre MCI (30%) y CN (10%).
+    CLINICAL_F1_WEIGHTS: dict = {0: 0.10, 1: 0.30, 2: 0.60}
+
+    # ========================
+    # Clases del dataset
     # ========================
     # CDR (Clinical Dementia Rating):
     #   0   = Sin demencia          -> Clase 0 (CN)

@@ -1,14 +1,15 @@
 """
 train.py — Training loop para AlzheimerResNet sobre OASIS-1 / OASIS-3.
 
-Metrica de seleccion de modelo: macro F1-score (robusto ante class imbalance).
+Metrica de seleccion de modelo: Clinical F1-Score (ponderado: 60% AD, 30% MCI, 10% CN).
+Ademas de penalizacion asimetrica en la loss (multiplicadores clinicos sobre class weights).
 
 Genera automaticamente en outputs/<run_name>/:
-    - training_log.csv       — metricas por epoch
+    - training_log.csv       — metricas por epoch (incluye macro F1 y clinical F1)
     - curves_loss.png        — grafica de loss (train vs val)
     - curves_accuracy.png    — grafica de accuracy (train vs val)
-    - curves_f1.png          — grafica de macro F1 (train vs val)
-    - best_model.pth         — pesos del mejor modelo (mayor val macro F1)
+    - curves_f1.png          — grafica de clinical F1 (train vs val)
+    - best_model.pth         — pesos del mejor modelo (mayor val clinical F1)
     - training_summary.txt   — resumen legible del entrenamiento
 
 Modos de ejecucion:
@@ -75,9 +76,11 @@ class EarlyStopping:
 
 def compute_class_weights(dataset: str = "oasis1") -> torch.Tensor:
     """
-    Calcula pesos inversamente proporcionales a la frecuencia de cada clase.
+    Calcula pesos inversamente proporcionales a la frecuencia de cada clase,
+    con multiplicadores clinicos para penalizar mas los errores en AD/MCI.
 
-    Formula: weight_i = N_total / (N_classes * N_i)
+    Formula base: weight_i = N_total / (N_classes * N_i)
+    Luego: weight_i *= CLINICAL_WEIGHT_MULTIPLIERS[i]
     """
     df = load_split("train", dataset=dataset)
     counts = df["label"].value_counts().sort_index()
@@ -90,8 +93,24 @@ def compute_class_weights(dataset: str = "oasis1") -> torch.Tensor:
         weights.append(n_total / (n_classes * n_c))
 
     w = torch.tensor(weights, dtype=torch.float32)
-    print(f"[INFO] Class weights: {w.tolist()}")
+    print(f"[INFO] Class weights (base):   {w.tolist()}")
+
+    for c, mult in cfg.CLINICAL_WEIGHT_MULTIPLIERS.items():
+        w[c] *= mult
+    print(f"[INFO] Class weights (clinico): {w.tolist()}")
+    print(f"[INFO] Multiplicadores:         {cfg.CLINICAL_WEIGHT_MULTIPLIERS}")
     return w
+
+
+# ---------------------------------------------------------------------------
+# Clinical F1 metric
+# ---------------------------------------------------------------------------
+
+def compute_clinical_f1(labels: list[int], preds: list[int]) -> float:
+    """F1 ponderado con prioridad clinica: 60% AD, 30% MCI, 10% CN."""
+    f1_per_class = f1_score(labels, preds, average=None, zero_division=0)
+    weights = cfg.CLINICAL_F1_WEIGHTS
+    return sum(weights[c] * f1_per_class[c] for c in range(len(f1_per_class)))
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +140,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
 ) -> dict:
-    """Ejecuta un epoch de entrenamiento. Retorna dict con loss, accuracy y macro_f1."""
+    """Ejecuta un epoch de entrenamiento. Retorna metricas incluyendo clinical_f1."""
     model.train()
     running_loss = 0.0
     correct = 0
@@ -153,11 +172,13 @@ def train_one_epoch(
             _progress_log(i, n_batches, t0, "Train", running_loss, correct, total)
 
     macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
+    clin_f1 = compute_clinical_f1(all_labels, all_preds)
     print()
     return {
         "loss": running_loss / total,
         "accuracy": correct / total,
         "macro_f1": macro_f1,
+        "clinical_f1": clin_f1,
     }
 
 
@@ -167,7 +188,7 @@ def evaluate(
     criterion: nn.Module,
     device: torch.device,
 ) -> dict:
-    """Evalua el modelo sin gradientes. Retorna dict con loss, accuracy y macro_f1."""
+    """Evalua el modelo sin gradientes. Retorna metricas incluyendo clinical_f1."""
     model.eval()
     running_loss = 0.0
     correct = 0
@@ -197,11 +218,13 @@ def evaluate(
                 _progress_log(i, n_batches, t0, "Val  ", running_loss, correct, total)
 
     macro_f1 = f1_score(all_labels, all_preds, average="macro", zero_division=0)
+    clin_f1 = compute_clinical_f1(all_labels, all_preds)
     print()
     return {
         "loss": running_loss / total,
         "accuracy": correct / total,
         "macro_f1": macro_f1,
+        "clinical_f1": clin_f1,
     }
 
 
@@ -210,16 +233,16 @@ def evaluate(
 # ---------------------------------------------------------------------------
 
 def _save_plots(history: list[dict], run_dir: Path) -> None:
-    """Genera y guarda graficas de loss, accuracy y macro F1."""
+    """Genera y guarda graficas de loss, accuracy y clinical F1."""
     epochs = [r["epoch"] for r in history]
     train_loss = [r["train_loss"] for r in history]
     val_loss = [r["val_loss"] for r in history]
     train_acc = [r["train_acc"] * 100 for r in history]
     val_acc = [r["val_acc"] * 100 for r in history]
-    train_f1 = [r["train_f1"] * 100 for r in history]
-    val_f1 = [r["val_f1"] * 100 for r in history]
+    train_clin_f1 = [r["train_clinical_f1"] * 100 for r in history]
+    val_clin_f1 = [r["val_clinical_f1"] * 100 for r in history]
 
-    best_idx = max(range(len(val_f1)), key=lambda i: val_f1[i])
+    best_idx = max(range(len(val_clin_f1)), key=lambda i: val_clin_f1[i])
 
     # --- Loss ---
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -252,15 +275,16 @@ def _save_plots(history: list[dict], run_dir: Path) -> None:
     fig.savefig(run_dir / "curves_accuracy.png", dpi=150)
     plt.close(fig)
 
-    # --- Macro F1 ---
+    # --- Clinical F1 ---
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(epochs, train_f1, "o-", label="Train F1 (macro)", linewidth=2, markersize=4)
-    ax.plot(epochs, val_f1, "s-", label="Val F1 (macro)", linewidth=2, markersize=4)
+    ax.plot(epochs, train_clin_f1, "o-", label="Train Clinical F1", linewidth=2, markersize=4)
+    ax.plot(epochs, val_clin_f1, "s-", label="Val Clinical F1", linewidth=2, markersize=4)
     ax.axvline(x=epochs[best_idx], color="red", linestyle="--", alpha=0.5,
                label=f"Best epoch ({epochs[best_idx]})")
     ax.set_xlabel("Epoch", fontsize=12)
-    ax.set_ylabel("Macro F1 (%)", fontsize=12)
-    ax.set_title("Training & Validation Macro F1-Score", fontsize=14)
+    ax.set_ylabel("Clinical F1 (%)", fontsize=12)
+    ax.set_title("Training & Validation Clinical F1-Score (60% AD, 30% MCI, 10% CN)",
+                 fontsize=13)
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(0, 105)
@@ -274,7 +298,7 @@ def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
                   early_stopped: bool = False, patience: int = 0,
                   model_name: str = "resnet10") -> None:
     """Genera un archivo de resumen legible."""
-    best = max(history, key=lambda r: r["val_f1"])
+    best = max(history, key=lambda r: r["val_clinical_f1"])
     last = history[-1]
 
     stop_reason = f"Early stopping (patience={patience})" if early_stopped else "Completado"
@@ -288,33 +312,38 @@ def _save_summary(history: list[dict], run_dir: Path, device: torch.device,
         f"Modelo:             {model_name}",
         f"Parametros:         {n_params:,}",
         f"Class weights:      {class_weights}",
+        f"  Multiplicadores:  {cfg.CLINICAL_WEIGHT_MULTIPLIERS}",
         f"Learning rate:      {cfg.LEARNING_RATE}",
         f"Weight decay (L2):  {cfg.WEIGHT_DECAY}",
         f"Batch size:         {cfg.BATCH_SIZE}",
         f"Image size:         {cfg.IMAGE_SIZE}",
         f"Epochs:             {len(history)}",
         f"Finalizacion:       {stop_reason}",
-        f"Metrica seleccion:  Macro F1-Score",
+        f"Metrica seleccion:  Clinical F1 (pesos: {cfg.CLINICAL_F1_WEIGHTS})",
         f"Tiempo total:       {elapsed_total:.0f}s ({elapsed_total/60:.1f} min)",
         f"Tiempo por epoch:   {elapsed_total/len(history):.1f}s",
         "",
-        "--- Mejor Epoch (por macro F1) ---",
-        f"  Epoch:            {best['epoch']}",
-        f"  Train Loss:       {best['train_loss']:.4f}",
-        f"  Train Acc:        {best['train_acc']:.2%}",
-        f"  Train F1 (macro): {best['train_f1']:.4f}",
-        f"  Val Loss:         {best['val_loss']:.4f}",
-        f"  Val Acc:          {best['val_acc']:.2%}",
-        f"  Val F1 (macro):   {best['val_f1']:.4f}",
+        "--- Mejor Epoch (por clinical F1) ---",
+        f"  Epoch:               {best['epoch']}",
+        f"  Train Loss:          {best['train_loss']:.4f}",
+        f"  Train Acc:           {best['train_acc']:.2%}",
+        f"  Train F1 (macro):    {best['train_f1']:.4f}",
+        f"  Train F1 (clinical): {best['train_clinical_f1']:.4f}",
+        f"  Val Loss:            {best['val_loss']:.4f}",
+        f"  Val Acc:             {best['val_acc']:.2%}",
+        f"  Val F1 (macro):      {best['val_f1']:.4f}",
+        f"  Val F1 (clinical):   {best['val_clinical_f1']:.4f}",
         "",
         "--- Ultimo Epoch ---",
-        f"  Epoch:            {last['epoch']}",
-        f"  Train Loss:       {last['train_loss']:.4f}",
-        f"  Train Acc:        {last['train_acc']:.2%}",
-        f"  Train F1 (macro): {last['train_f1']:.4f}",
-        f"  Val Loss:         {last['val_loss']:.4f}",
-        f"  Val Acc:          {last['val_acc']:.2%}",
-        f"  Val F1 (macro):   {last['val_f1']:.4f}",
+        f"  Epoch:               {last['epoch']}",
+        f"  Train Loss:          {last['train_loss']:.4f}",
+        f"  Train Acc:           {last['train_acc']:.2%}",
+        f"  Train F1 (macro):    {last['train_f1']:.4f}",
+        f"  Train F1 (clinical): {last['train_clinical_f1']:.4f}",
+        f"  Val Loss:            {last['val_loss']:.4f}",
+        f"  Val Acc:             {last['val_acc']:.2%}",
+        f"  Val F1 (macro):      {last['val_f1']:.4f}",
+        f"  Val F1 (clinical):   {last['val_clinical_f1']:.4f}",
         "",
         f"Archivos generados en: {run_dir}",
         "=" * 60,
@@ -346,7 +375,7 @@ def train(
                           100 epochs (sanity check de convergencia).
         run_name: Nombre de la carpeta dentro de outputs/ para esta ejecucion.
                   Si None, se genera uno automatico con timestamp.
-        patience: Epochs sin mejora en val macro F1 antes de early stopping.
+        patience: Epochs sin mejora en val clinical F1 antes de early stopping.
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
         subset: Limitar cada split a N samples (para pruebas rapidas).
         model_name: Nombre del modelo ('resnet10' o 'simple3dcnn').
@@ -424,7 +453,7 @@ def train(
 
     print("\n" + "=" * 60)
     print(f"ENTRENAMIENTO — max {num_epochs} epochs (early stopping: patience={patience})")
-    print(f"Metrica de seleccion: macro F1-score")
+    print(f"Metrica de seleccion: Clinical F1 (pesos: {cfg.CLINICAL_F1_WEIGHTS})")
     print(f"Resultados en: {run_dir}")
     print("=" * 60)
 
@@ -446,14 +475,15 @@ def train(
     csv_writer = csv.DictWriter(
         csv_file,
         fieldnames=[
-            "epoch", "train_loss", "train_acc", "train_f1",
-            "val_loss", "val_acc", "val_f1", "epoch_time_s", "is_best",
+            "epoch", "train_loss", "train_acc", "train_f1", "train_clinical_f1",
+            "val_loss", "val_acc", "val_f1", "val_clinical_f1",
+            "epoch_time_s", "is_best",
         ],
     )
     csv_writer.writeheader()
 
     history: list[dict] = []
-    best_val_f1 = 0.0
+    best_val_clinical_f1 = 0.0
     best_epoch = 0
     t_start = time.time()
 
@@ -464,16 +494,18 @@ def train(
         val_metrics = evaluate(model, val_loader, criterion, device)
 
         elapsed = time.time() - t0
-        is_best = val_metrics["macro_f1"] > best_val_f1
+        is_best = val_metrics["clinical_f1"] > best_val_clinical_f1
 
         row = {
             "epoch": epoch,
             "train_loss": round(train_metrics["loss"], 6),
             "train_acc": round(train_metrics["accuracy"], 6),
             "train_f1": round(train_metrics["macro_f1"], 6),
+            "train_clinical_f1": round(train_metrics["clinical_f1"], 6),
             "val_loss": round(val_metrics["loss"], 6),
             "val_acc": round(val_metrics["accuracy"], 6),
             "val_f1": round(val_metrics["macro_f1"], 6),
+            "val_clinical_f1": round(val_metrics["clinical_f1"], 6),
             "epoch_time_s": round(elapsed, 1),
             "is_best": is_best,
         }
@@ -482,7 +514,7 @@ def train(
         csv_file.flush()
 
         if is_best:
-            best_val_f1 = val_metrics["macro_f1"]
+            best_val_clinical_f1 = val_metrics["clinical_f1"]
             best_epoch = epoch
             torch.save({
                 "epoch": epoch,
@@ -492,10 +524,11 @@ def train(
                 "scheduler_state_dict": scheduler.state_dict(),
                 "val_loss": val_metrics["loss"],
                 "val_accuracy": val_metrics["accuracy"],
-                "val_f1": best_val_f1,
+                "val_macro_f1": val_metrics["macro_f1"],
+                "val_clinical_f1": best_val_clinical_f1,
             }, run_dir / "best_model.pth")
 
-        should_stop = early_stopper.step(val_metrics["macro_f1"])
+        should_stop = early_stopper.step(val_metrics["clinical_f1"])
         scheduler.step(val_metrics["loss"])
 
         # -- Logging informativo --
@@ -514,17 +547,19 @@ def train(
         print(
             f"\n--- Epoch {epoch}/{num_epochs} "
             f"({elapsed:.0f}s | total: {elapsed_str} | ETA: {eta_str}) ---\n"
-            f"  Train  ->  Loss: {train_metrics['loss']:.4f}  |  Acc: {train_metrics['accuracy']:.2%}  |  F1: {train_metrics['macro_f1']:.4f}\n"
-            f"  Val    ->  Loss: {val_metrics['loss']:.4f}  |  Acc: {val_metrics['accuracy']:.2%}  |  F1: {val_metrics['macro_f1']:.4f}{best_marker}\n"
-            f"  LR: {current_lr:.2e}  |  Best: epoch {best_epoch} (val_f1={best_val_f1:.4f})  "
+            f"  Train  ->  Loss: {train_metrics['loss']:.4f}  |  Acc: {train_metrics['accuracy']:.2%}  "
+            f"|  F1m: {train_metrics['macro_f1']:.4f}  |  F1c: {train_metrics['clinical_f1']:.4f}\n"
+            f"  Val    ->  Loss: {val_metrics['loss']:.4f}  |  Acc: {val_metrics['accuracy']:.2%}  "
+            f"|  F1m: {val_metrics['macro_f1']:.4f}  |  F1c: {val_metrics['clinical_f1']:.4f}{best_marker}\n"
+            f"  LR: {current_lr:.2e}  |  Best: epoch {best_epoch} (clin_f1={best_val_clinical_f1:.4f})  "
             f"| Early stop: {es_bar} {es_counter}/{patience}"
         )
 
         if should_stop:
             print(
                 f"\n{'=' * 60}\n"
-                f"[EARLY STOPPING] Val macro F1 no mejoro en {patience} epochs.\n"
-                f"Mejor epoch: {best_epoch} (val_f1={best_val_f1:.4f})\n"
+                f"[EARLY STOPPING] Val clinical F1 no mejoro en {patience} epochs.\n"
+                f"Mejor epoch: {best_epoch} (clin_f1={best_val_clinical_f1:.4f})\n"
                 f"{'=' * 60}"
             )
             break
