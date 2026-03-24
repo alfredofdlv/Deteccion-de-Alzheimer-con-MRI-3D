@@ -16,7 +16,7 @@ Verificacion rapida:
 
 import torch
 import torch.nn as nn
-from monai.networks.nets import resnet10
+from monai.networks.nets import resnet10, DenseNet121
 
 from src.config import cfg
 
@@ -99,12 +99,33 @@ class AlzheimerResNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
+# ---------------------------------------------------------------------------
+# AlzheimerDenseNet — DenseNet-121 3D de MONAI
+# ---------------------------------------------------------------------------
+
+class AlzheimerDenseNet(nn.Module):
+    """
+    DenseNet-121 3D para clasificacion de volumenes cerebrales MRI.
+    Wrapper de monai.networks.nets.DenseNet121: entrada 3D monocanal,
+    3 clases de salida. ~7.9M parametros.
+    """
+    def __init__(self, num_classes: int = cfg.NUM_CLASSES):
+        super().__init__()
+        self.net = DenseNet121(
+            spatial_dims=3,
+            in_channels=1,
+            out_channels=num_classes,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
 
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
-AVAILABLE_MODELS = ["resnet10", "simple3dcnn"]
+AVAILABLE_MODELS = ["resnet10", "simple3dcnn","densenet121"]
 
 
 def get_model(name: str = "resnet10") -> nn.Module:
@@ -120,6 +141,8 @@ def get_model(name: str = "resnet10") -> nn.Module:
         return AlzheimerResNet()
     elif name == "simple3dcnn":
         return Simple3DCNN()
+    elif name == "densenet121":
+        return AlzheimerDenseNet()
     else:
         raise ValueError(f"Modelo '{name}' no reconocido. Opciones: {AVAILABLE_MODELS}")
 

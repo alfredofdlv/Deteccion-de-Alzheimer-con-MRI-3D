@@ -104,7 +104,7 @@ def main():
     )
     parser.add_argument(
         "--model", type=str, default="resnet10",
-        choices=["resnet10", "simple3dcnn"],
+        choices=["resnet10", "simple3dcnn","densenet121"],
         help="Modelo a usar (default: resnet10)",
     )
     args = parser.parse_args()

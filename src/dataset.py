@@ -26,17 +26,9 @@ import torch
 from monai.config import KeysCollection
 from monai.data import CacheDataset, DataLoader, Dataset
 from monai.transforms import (
-    Compose,
-    EnsureChannelFirstd,
-    LoadImaged,
-    MapTransform,
-    Orientationd,
-    RandFlipd,
-    RandGaussianNoised,
-    RandRotated,
-    RandShiftIntensityd,
-    Resized,
-    ScaleIntensityRangePercentilesd,
+    Compose, EnsureChannelFirstd, LoadImaged, MapTransform, Orientationd,
+    RandFlipd, RandGaussianNoised, RandShiftIntensityd, RandAdjustContrastd,
+    RandAffined, RandCoarseDropoutd, Resized, ScaleIntensityRangePercentilesd,
 )
 
 from src.config import cfg
@@ -123,11 +115,29 @@ def get_transforms_pt(split: str = "train") -> Compose:
 
     if split == "train":
         transforms.extend([
-            RandFlipd(keys=["image"], prob=0.5, spatial_axis=0),
-            RandRotated(keys=["image"], range_x=0.2, range_y=0.2, range_z=0.2, prob=0.3),
-            RandGaussianNoised(keys=["image"], prob=0.1, mean=0.0, std=0.05),
-            RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.1),
-        ])
+         # 1. Anatomical spatial variations (Flip LR only, no up/down)
+         RandFlipd(keys=["image"], prob=0.5, spatial_axis=0),
+
+         # 2. Scanner positioning & head size variations (Combines Rotate, Zoom, Translate)
+         RandAffined(
+             keys=["image"], 
+             prob=0.6, 
+             rotate_range=(0.2, 0.2, 0.2), 
+             scale_range=(0.1, 0.1, 0.1), # +/- 10% Zoom
+             translate_range=(4, 4, 4),   # Slight shifting
+             padding_mode="zeros"
+         ),
+
+         # 3. Scanner noise and magnetic field variations
+         RandGaussianNoised(keys=["image"], prob=0.2, mean=0.0, std=0.05),
+         RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.2),
+         RandAdjustContrastd(keys=["image"], prob=0.2, gamma=(0.7, 1.3)),
+
+         # 4. Regional occlusion (Forces network to look at multiple brain areas)
+         RandCoarseDropoutd(
+             keys=["image"], holes=1, spatial_size=(16, 16, 16), fill_value=0, prob=0.3
+         ),
+     ])
 
     return Compose(transforms)
 
