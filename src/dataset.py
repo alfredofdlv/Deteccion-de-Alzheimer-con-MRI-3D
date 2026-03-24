@@ -52,6 +52,7 @@ class LoadPTd(MapTransform):
     def __call__(self, data):
         d = dict(data)
         for key in self.keys:
+            # weights_only=False necesario: .pt contienen MetaTensor de MONAI
             d[key] = torch.load(d[key], weights_only=False, map_location="cpu")
         return d
 
@@ -75,8 +76,8 @@ def get_transforms(split: str = "train") -> Compose:
     Data augmentation (solo train):
         6. RandFlipd          — Flip aleatorio en eje LR (prob=0.5).
         7. RandRotated        — Rotación aleatoria en 3D (rango 0.2 rad, prob=0.3).
-        8. RandGaussianNoised — Ruido gaussiano suave (prob=0.3, std=0.05).
-        9. RandShiftIntensityd— Variación de intensidad (offsets=0.1, prob=0.3).
+        8. RandGaussianNoised — Ruido gaussiano suave (prob=0.1, std=0.05).
+        9. RandShiftIntensityd— Variación de intensidad (offsets=0.1, prob=0.1).
 
     Args:
         split: Nombre del split ('train', 'val', 'test').
@@ -103,8 +104,8 @@ def get_transforms(split: str = "train") -> Compose:
         transforms.extend([
             RandFlipd(keys=["image"], prob=0.5, spatial_axis=0),
             RandRotated(keys=["image"], range_x=0.2, range_y=0.2, range_z=0.2, prob=0.3),
-            RandGaussianNoised(keys=["image"], prob=0.3, mean=0.0, std=0.05),
-            RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.3),
+            RandGaussianNoised(keys=["image"], prob=0.1, mean=0.0, std=0.05),
+            RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.1),
         ])
 
     return Compose(transforms)
@@ -124,8 +125,8 @@ def get_transforms_pt(split: str = "train") -> Compose:
         transforms.extend([
             RandFlipd(keys=["image"], prob=0.5, spatial_axis=0),
             RandRotated(keys=["image"], range_x=0.2, range_y=0.2, range_z=0.2, prob=0.3),
-            RandGaussianNoised(keys=["image"], prob=0.3, mean=0.0, std=0.05),
-            RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.3),
+            RandGaussianNoised(keys=["image"], prob=0.1, mean=0.0, std=0.05),
+            RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.1),
         ])
 
     return Compose(transforms)
@@ -173,8 +174,8 @@ def describe_transforms(split: str = "train", is_pt: bool = False) -> str:
             "--- Data Augmentation (estocastico, solo train) ---",
             f"  RandFlipd            keys=['image'], prob=0.5, spatial_axis=0",
             f"  RandRotated          keys=['image'], range_xyz=0.2, prob=0.3",
-            f"  RandGaussianNoised   keys=['image'], prob=0.3, mean=0.0, std=0.05",
-            f"  RandShiftIntensityd  keys=['image'], offsets=0.1, prob=0.3",
+            f"  RandGaussianNoised   keys=['image'], prob=0.1, mean=0.0, std=0.05",
+            f"  RandShiftIntensityd  keys=['image'], offsets=0.1, prob=0.1",
             "",
             "Nota: las transforms Rand* se aplican on-the-fly en cada epoch.",
         ]
@@ -275,6 +276,8 @@ def get_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
+        persistent_workers=(num_workers > 0),
+        prefetch_factor=2 if num_workers > 0 else None,
     )
 
     return loader

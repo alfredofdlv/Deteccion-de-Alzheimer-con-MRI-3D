@@ -1,4 +1,10 @@
-# CLAUDE.md
+# Instrucciones para Claude Code
+
+- **Proactividad:** Actúa de forma proactiva y automática para resolver problemas, proponer soluciones y escribir código en el entorno del repositorio `/media/nas/aflorez/Deteccion-de-Alzheimer-con-MRI-3D` y en `/home/aflorez`.
+- **Regla Estricta (No eliminar):** Tienes estrictamente prohibido eliminar archivos, carpetas o recursos del repositorio. Si un archivo ya no es necesario, sugiere ignorarlo o moverlo, pero no utilices comandos destructivos (como `rm` o herramientas de borrado de archivos) sobre el código existente.
+- **Modificaciones:** Puedes modificar, refactorizar o añadir nuevos archivos libremente para mejorar el proyecto.
+
+---
 
 ## Proyecto
 TFG: Detección de Alzheimer mediante CNNs 3D sobre imágenes MRI del dataset OASIS-3.

@@ -28,6 +28,7 @@ from sklearn.metrics import (
     accuracy_score,
     classification_report,
     confusion_matrix,
+    fbeta_score,
 )
 
 from src.config import cfg
@@ -52,7 +53,7 @@ def collect_predictions(
     all_preds: list[int] = []
     all_labels: list[int] = []
     n_batches = len(loader)
-    log_every = max(1, n_batches // 5)
+    log_every = max(1, n_batches // 20)  # ~5% de los batches
     t0 = time.time()
 
     with torch.no_grad():
@@ -147,13 +148,13 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
     print(f"[INFO] Modelo: {resolved_model}")
     model = get_model(resolved_model).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
-    val_f1 = checkpoint.get("val_f1")
+    val_clinical_f2 = checkpoint.get("val_clinical_f2")
     ckpt_info = (
         f"[INFO] Modelo cargado desde epoch {checkpoint['epoch']} "
         f"(val_loss={checkpoint['val_loss']:.4f}, val_acc={checkpoint['val_accuracy']:.2%}"
     )
-    if val_f1 is not None:
-        ckpt_info += f", val_f1={val_f1:.4f}"
+    if val_clinical_f2 is not None:
+        ckpt_info += f", val_clinical_f2={val_clinical_f2:.4f}"
     ckpt_info += ")"
     print(ckpt_info)
 
@@ -167,11 +168,38 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
     acc = accuracy_score(all_labels, all_preds)
     report = classification_report(
         all_labels, all_preds,
+        labels=list(range(cfg.NUM_CLASSES)),
         target_names=CLASS_NAMES,
         digits=4,
         zero_division=0,
     )
     cm = confusion_matrix(all_labels, all_preds, labels=list(range(cfg.NUM_CLASSES)))
+
+    # F2 (β=2) por clase, macro y clinical
+    f2_per_class = fbeta_score(
+        all_labels, all_preds, beta=2,
+        labels=list(range(cfg.NUM_CLASSES)),
+        average=None, zero_division=0,
+    )
+    macro_f2 = fbeta_score(
+        all_labels, all_preds, beta=2,
+        labels=list(range(cfg.NUM_CLASSES)),
+        average="macro", zero_division=0,
+    )
+    clinical_f2 = sum(cfg.CLINICAL_F2_WEIGHTS[c] * f2_per_class[c] for c in range(cfg.NUM_CLASSES))
+
+    f2_lines = [
+        f"  {'Clase':<6}  {'F2 (β=2)':>10}",
+        f"  {'-'*20}",
+    ]
+    for i, name in enumerate(CLASS_NAMES):
+        f2_lines.append(f"  {name:<6}  {f2_per_class[i]:>10.4f}")
+    f2_lines += [
+        f"  {'-'*20}",
+        f"  {'Macro':<6}  {macro_f2:>10.4f}",
+        f"  {'Clinical':<6}  {clinical_f2:>10.4f}  (pesos: {cfg.CLINICAL_F2_WEIGHTS})",
+    ]
+    f2_report = "\n".join(f2_lines)
 
     # Mostrar resultados
     print(f"\n{'=' * 60}")
@@ -179,7 +207,9 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
     print(f"{'=' * 60}")
     print(f"\nAccuracy global: {acc:.2%}")
     print(f"\n{report}")
-    print(f"Confusion Matrix:")
+    print(f"--- F2-Score (β=2) ---")
+    print(f2_report)
+    print(f"\nConfusion Matrix:")
     print(cm)
 
     # Guardar classification report
@@ -192,6 +222,8 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
         f"{'=' * 60}\n\n"
         f"Accuracy global: {acc:.2%}\n\n"
         f"{report}\n"
+        f"--- F2-Score (β=2) ---\n"
+        f"{f2_report}\n\n"
         f"Confusion Matrix:\n{cm}\n"
     )
     report_path.write_text(report_text, encoding="utf-8")
