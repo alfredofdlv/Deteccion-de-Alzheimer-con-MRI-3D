@@ -91,13 +91,7 @@ def get_transforms(split: str = "train") -> Compose:
             b_max=1.0,
             clip=True,
         ),
-        CropForegroundd(
-            keys=["image"], 
-            source_key="image",  # Usa la propia imagen para detectar el fondo
-            select_fn=lambda x: x > 0.1,  # Considera "foreground" cualquier píxel con intensidad > 0.1
-            margin=2  # Puedes poner un pequeño margen (ej. 5) si no quieres un recorte tan ajustado
-        ),
-        Resized(keys=["image"], spatial_size=cfg.IMAGE_SIZE),
+        Resized(keys=["image"], spatial_size=cfg.IMAGE_SIZE)
     ]
 
     if split == "train":

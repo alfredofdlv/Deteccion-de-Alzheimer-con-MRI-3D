@@ -22,6 +22,7 @@ import pandas as pd
 import torch
 from monai.transforms import (
     Compose,
+    CropForeground,
     EnsureChannelFirst,
     LoadImage,
     Orientation,
@@ -35,13 +36,18 @@ APPROX_MB_PER_IMAGE = 3.4
 
 
 def build_preprocess_pipeline() -> Compose:
-    """Las mismas 5 transforms determinísticas que get_transforms(), version no-dict."""
+    """Transforms determinísticas offline: Load → ChannelFirst → Orientation RAS
+    → ScaleIntensity → CropForeground → Resize 96³."""
     return Compose([
         LoadImage(image_only=True),
         EnsureChannelFirst(),
         Orientation(axcodes="RAS"),
         ScaleIntensityRangePercentiles(
             lower=1, upper=99, b_min=0.0, b_max=1.0, clip=True,
+        ),
+        CropForeground(
+            select_fn=lambda x: x > 0.1,
+            margin=2,
         ),
         Resize(spatial_size=cfg.IMAGE_SIZE),
     ])
