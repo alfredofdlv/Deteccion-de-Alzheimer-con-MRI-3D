@@ -145,12 +145,16 @@ def train_one_epoch(
     log_every = max(1, n_batches // 100)  # ~1% de los batches
     t0 = time.time()
 
+    uses_clin = getattr(model, "uses_clinical", False)
     for i, batch in enumerate(loader, 1):
         images = batch["image"].to(device)
         labels = batch["label"].to(device)
+        clinical = batch.get("clinical")
+        if clinical is not None:
+            clinical = clinical.to(device)
 
         optimizer.zero_grad()
-        outputs = model(images)
+        outputs = model(images, clinical) if uses_clin else model(images)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -193,12 +197,16 @@ def evaluate(
     log_every = max(1, n_batches // 20)  # ~5% de los batches
     t0 = time.time()
 
+    uses_clin = getattr(model, "uses_clinical", False)
     with torch.no_grad():
         for i, batch in enumerate(loader, 1):
             images = batch["image"].to(device)
             labels = batch["label"].to(device)
+            clinical = batch.get("clinical")
+            if clinical is not None:
+                clinical = clinical.to(device)
 
-            outputs = model(images)
+            outputs = model(images, clinical) if uses_clin else model(images)
             loss = criterion(outputs, labels)
 
             running_loss += loss.item() * images.size(0)
@@ -358,6 +366,7 @@ def train(
     dataset: str = "oasis1",
     subset: int | None = None,
     model_name: str = "resnet10",
+    use_clinical: bool | None = None,
 ) -> None:
     """
     Funcion principal de entrenamiento.
@@ -371,7 +380,9 @@ def train(
         patience: Epochs sin mejora en val clinical F1 antes de early stopping.
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
         subset: Limitar cada split a N samples (para pruebas rapidas).
-        model_name: Nombre del modelo ('resnet10' o 'simple3dcnn').
+        model_name: Nombre del modelo.
+        use_clinical: Si True, pasa covariables clínicas al modelo.
+                      Por defecto True para 'multimodal_densenet', False para el resto.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
@@ -379,6 +390,9 @@ def train(
     torch.manual_seed(cfg.RANDOM_SEED)
     if device.type == "cuda":
         torch.cuda.manual_seed_all(cfg.RANDOM_SEED)
+
+    if use_clinical is None:
+        use_clinical = (model_name == "multimodal_densenet")
 
     model = get_model(model_name).to(device)
     print(f"[INFO] Modelo: {model_name}")
@@ -402,17 +416,22 @@ def train(
         print("MODO OVERFIT-ONE-BATCH (sanity check)")
         print("=" * 60)
 
-        loader = get_dataloader("train", batch_size=4, num_workers=0, shuffle=False, dataset=dataset, subset=subset)
+        loader = get_dataloader("train", batch_size=4, num_workers=0, shuffle=False,
+                                dataset=dataset, subset=subset, use_clinical=use_clinical)
         single_batch = next(iter(loader))
         images = single_batch["image"].to(device)
         labels = single_batch["label"].to(device)
+        ob_clinical = single_batch.get("clinical")
+        if ob_clinical is not None:
+            ob_clinical = ob_clinical.to(device)
         print(f"Batch labels: {labels.tolist()}")
 
         num_epochs = 100
+        _uses_clin = getattr(model, "uses_clinical", False)
         model.train()
         for epoch in range(1, num_epochs + 1):
             optimizer.zero_grad()
-            outputs = model(images)
+            outputs = model(images, ob_clinical) if _uses_clin else model(images)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -456,9 +475,9 @@ def train(
     if subset:
         print(f"[INFO] Modo subset: limitando a {subset} samples por split")
     print("[INFO] Cargando datos de entrenamiento...")
-    train_loader = get_dataloader("train", dataset=dataset, subset=subset)
+    train_loader = get_dataloader("train", dataset=dataset, subset=subset, use_clinical=use_clinical)
     print(f"[INFO] Cargando datos de validacion...")
-    val_loader = get_dataloader("val", dataset=dataset, subset=subset)
+    val_loader = get_dataloader("val", dataset=dataset, subset=subset, use_clinical=use_clinical)
     print(
         f"[INFO] Datos listos en {time.time() - t_load:.1f}s — "
         f"Train: {len(train_loader)} batches ({len(train_loader.dataset)} samples), "
@@ -514,6 +533,7 @@ def train(
             torch.save({
                 "epoch": epoch,
                 "model_name": model_name,
+                "use_clinical": use_clinical,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),

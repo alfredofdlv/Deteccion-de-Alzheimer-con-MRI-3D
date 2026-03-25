@@ -52,7 +52,9 @@ def match_labels(scans: pd.DataFrame, clinical: pd.DataFrame, window: int) -> pd
     Para cada fila de scans, busca la etiqueta clínica más cercana del mismo sujeto.
     Descarta scans cuya visita más cercana esté a más de `window` días.
     """
-    clin = clinical[["OASISID", "days_to_visit", "label"]].dropna(subset=["label"]).copy()
+    clin = clinical[
+        ["OASISID", "days_to_visit", "label", "age at visit", "GENDER", "EDUC", "APOE_e4"]
+    ].dropna(subset=["label"]).copy()
     clin["days_to_visit"] = clin["days_to_visit"].astype(int)
     clin["label"] = clin["label"].astype(int)
 
@@ -75,6 +77,10 @@ def match_labels(scans: pd.DataFrame, clinical: pd.DataFrame, window: int) -> pd
             "subject_id": row["subject_id"],
             "image_path": row["image_path"],
             "label": int(best["label"]),
+            "age_at_visit": float(best["age at visit"]),
+            "GENDER": str(best["GENDER"]),
+            "EDUC": float(best["EDUC"]) if pd.notna(best["EDUC"]) else 12.0,
+            "APOE_e4": float(best["APOE_e4"]) if pd.notna(best["APOE_e4"]) else 0.0,
         })
 
     return pd.DataFrame(matched), discarded
@@ -177,7 +183,8 @@ def main():
     splits = {"oasis3_train_pt": train_df, "oasis3_val_pt": val_df, "oasis3_test_pt": test_df}
     for name, df in splits.items():
         out_path = splits_dir / f"{name}.csv"
-        df[["subject_id", "image_path", "label"]].to_csv(out_path, index=False)
+        df[["subject_id", "image_path", "label",
+            "age_at_visit", "GENDER", "EDUC", "APOE_e4"]].to_csv(out_path, index=False)
 
     print(f"\n  Splits guardados en: {splits_dir}")
     print_split_summary("train", train_df)

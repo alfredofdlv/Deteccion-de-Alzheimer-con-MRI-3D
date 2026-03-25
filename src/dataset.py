@@ -22,6 +22,7 @@ Uso:
 
 from __future__ import annotations
 
+import pandas as pd
 import torch
 from monai.config import KeysCollection
 from monai.data import CacheDataset, DataLoader, Dataset
@@ -29,6 +30,7 @@ from monai.transforms import (
     Compose, EnsureChannelFirstd, LoadImaged, MapTransform, Orientationd,
     RandFlipd, RandGaussianNoised, RandShiftIntensityd, RandAdjustContrastd,
     RandAffined, RandCoarseDropoutd, Resized, ScaleIntensityRangePercentilesd,
+    CropForegroundd
 )
 
 from src.config import cfg
@@ -88,6 +90,12 @@ def get_transforms(split: str = "train") -> Compose:
             b_min=0.0,
             b_max=1.0,
             clip=True,
+        ),
+        CropForegroundd(
+            keys=["image"], 
+            source_key="image",  # Usa la propia imagen para detectar el fondo
+            select_fn=lambda x: x > 0.1,  # Considera "foreground" cualquier píxel con intensidad > 0.1
+            margin=2  # Puedes poner un pequeño margen (ej. 5) si no quieres un recorte tan ajustado
         ),
         Resized(keys=["image"], spatial_size=cfg.IMAGE_SIZE),
     ]
@@ -203,25 +211,40 @@ def describe_transforms(split: str = "train", is_pt: bool = False) -> str:
 # Data dicts
 # ---------------------------------------------------------------------------
 
-def _build_data_dicts(split: str, dataset: str = "oasis1") -> list[dict]:
+def _build_data_dicts(split: str, dataset: str = "oasis1", use_clinical: bool = False) -> list[dict]:
     """
     Convierte un CSV de split en la lista de dicts que MONAI espera.
 
     Cada dict tiene la forma:
         {"image": "/ruta/al/imagen.img_o_.nii.gz", "label": 0}
+    Con use_clinical=True, añade adicionalmente:
+        {"clinical": torch.Tensor([age, sex, educ, apoe])}
 
     Args:
         split: Nombre del split ('train', 'val', 'test').
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
+        use_clinical: Si True, extrae y normaliza covariables clínicas.
 
     Returns:
-        Lista de diccionarios con claves 'image' y 'label'.
+        Lista de diccionarios con claves 'image' y 'label' (y 'clinical' si use_clinical).
     """
     df = load_split(split, dataset=dataset)
-    data_dicts = [
-        {"image": row["image_path"], "label": int(row["label"])}
-        for _, row in df.iterrows()
-    ]
+    data_dicts = []
+    for _, row in df.iterrows():
+        d = {"image": row["image_path"], "label": int(row["label"])}
+        if use_clinical:
+            # Age (normalized: divide by 100, typical range 60-100)
+            age = float(row.get("age_at_visit", 75.0)) / 100.0
+            # Sex (F=1.0, M=0.0)
+            sex = 1.0 if str(row.get("GENDER", "F")).strip().upper() == "F" else 0.0
+            # Education (normalized: divide by 20, typical max ~20 years)
+            educ_val = row.get("EDUC", 12.0)
+            educ = float(educ_val) / 20.0 if pd.notna(educ_val) else 12.0 / 20.0
+            # APOE4 allele count (0.0 or 1.0+, already binary-ish)
+            apoe_val = row.get("APOE_e4", 0.0)
+            apoe = float(apoe_val) if pd.notna(apoe_val) else 0.0
+            d["clinical"] = torch.tensor([age, sex, educ, apoe], dtype=torch.float32)
+        data_dicts.append(d)
     return data_dicts
 
 
@@ -237,6 +260,7 @@ def get_dataloader(
     use_cache: bool = False,
     dataset: str = "oasis1",
     subset: int | None = None,
+    use_clinical: bool = False,
 ) -> DataLoader:
     """
     Crea un DataLoader MONAI listo para iterar.
@@ -251,11 +275,14 @@ def get_dataloader(
                    Por defecto False (usa Dataset estándar).
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
         subset: Si se indica, limita a los primeros N samples (para pruebas rapidas).
+        use_clinical: Si True, cada batch incluye batch['clinical'] de shape (B, 4)
+                      con covariables normalizadas [age/100, sex, educ/20, apoe].
 
     Returns:
         monai.data.DataLoader con batches de:
-            batch['image'] -> (B, 1, 96, 96, 96) float32
-            batch['label'] -> (B,) int64
+            batch['image']    -> (B, 1, 96, 96, 96) float32
+            batch['label']    -> (B,) int64
+            batch['clinical'] -> (B, 4) float32  (solo si use_clinical=True)
     """
     if batch_size is None:
         batch_size = cfg.BATCH_SIZE
@@ -264,7 +291,7 @@ def get_dataloader(
     if num_workers is None:
         num_workers = cfg.NUM_WORKERS
 
-    data_dicts = _build_data_dicts(split, dataset=dataset)
+    data_dicts = _build_data_dicts(split, dataset=dataset, use_clinical=use_clinical)
     if subset is not None and subset < len(data_dicts):
         data_dicts = data_dicts[:subset]
 
@@ -288,6 +315,7 @@ def get_dataloader(
         pin_memory=True,
         persistent_workers=(num_workers > 0),
         prefetch_factor=2 if num_workers > 0 else None,
+        drop_last=(split == "train"),
     )
 
     return loader

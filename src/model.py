@@ -122,17 +122,58 @@ class AlzheimerDenseNet(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# MultimodalDenseNet — DenseNet-121 3D + vector clínico
+# ---------------------------------------------------------------------------
+
+class MultimodalDenseNet(nn.Module):
+    """
+    Fusión Multimodal: DenseNet-121 3D (MRI) + vector clínico (Age, Sex, Educ, APOE4).
+
+    Arquitectura:
+        - Backbone: DenseNet121(out_channels=256)  -> img_emb (B, 256)
+        - Fusion:   cat([img_emb, clinical_4])     -> (B, 260)
+        - MLP head: Linear(260, 64) -> BN1d -> ReLU -> Dropout(0.3) -> Linear(64, 3)
+
+    El atributo de clase `uses_clinical = True` permite que train/evaluate
+    detecten el modo multimodal sin acoplamiento por isinstance.
+    """
+    uses_clinical: bool = True  # marker for train/evaluate dispatch
+
+    def __init__(self, num_classes: int = cfg.NUM_CLASSES, num_clinical: int = 4):
+        super().__init__()
+        self.feature_extractor = DenseNet121(
+            spatial_dims=3,
+            in_channels=1,
+            out_channels=256,
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(256 + num_clinical, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.3),
+            nn.Linear(64, num_classes),
+        )
+
+    def forward(self, x: torch.Tensor, clinical: torch.Tensor | None = None) -> torch.Tensor:
+        img_features = self.feature_extractor(x)           # (B, 256)
+        if clinical is None:
+            clinical = torch.zeros(x.size(0), 4, device=x.device, dtype=x.dtype)
+        fused = torch.cat([img_features, clinical], dim=1)  # (B, 260)
+        return self.classifier(fused)
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
-AVAILABLE_MODELS = ["resnet10", "simple3dcnn","densenet121"]
+AVAILABLE_MODELS = ["resnet10", "simple3dcnn", "densenet121", "multimodal_densenet"]
 
 
 def get_model(name: str = "resnet10") -> nn.Module:
     """Instancia un modelo por nombre.
 
     Args:
-        name: 'resnet10' o 'simple3dcnn'.
+        name: 'resnet10', 'simple3dcnn', 'densenet121' o 'multimodal_densenet'.
 
     Returns:
         nn.Module listo para .to(device).
@@ -143,6 +184,8 @@ def get_model(name: str = "resnet10") -> nn.Module:
         return Simple3DCNN()
     elif name == "densenet121":
         return AlzheimerDenseNet()
+    elif name == "multimodal_densenet":
+        return MultimodalDenseNet()
     else:
         raise ValueError(f"Modelo '{name}' no reconocido. Opciones: {AVAILABLE_MODELS}")
 
@@ -150,17 +193,23 @@ def get_model(name: str = "resnet10") -> nn.Module:
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dummy = torch.randn(1, 1, 96, 96, 96, device=device)
+    dummy_clinical = torch.randn(1, 4, device=device)
 
     for name in AVAILABLE_MODELS:
         print(f"\n{'=' * 50}")
         print(f"Modelo: {name}")
         print(f"{'=' * 50}")
-        model = get_model(name).to(device)
-        out = model(dummy)
+        model = get_model(name).to(device).eval()
+        if getattr(model, "uses_clinical", False):
+            out = model(dummy, dummy_clinical)
+        else:
+            out = model(dummy)
 
         n_params = sum(p.numel() for p in model.parameters())
         print(f"  Device:       {device}")
         print(f"  Input shape:  {dummy.shape}")
+        if getattr(model, "uses_clinical", False):
+            print(f"  Clinical shape: {dummy_clinical.shape}")
         print(f"  Output shape: {out.shape}")
         print(f"  Parametros:   {n_params:,}")
         assert out.shape == (1, cfg.NUM_CLASSES)

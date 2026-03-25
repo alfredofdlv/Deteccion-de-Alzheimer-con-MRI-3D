@@ -56,10 +56,14 @@ def collect_predictions(
     log_every = max(1, n_batches // 20)  # ~5% de los batches
     t0 = time.time()
 
+    uses_clin = getattr(model, "uses_clinical", False)
     with torch.no_grad():
         for i, batch in enumerate(loader, 1):
             images = batch["image"].to(device)
-            outputs = model(images)
+            clinical = batch.get("clinical")
+            if clinical is not None:
+                clinical = clinical.to(device)
+            outputs = model(images, clinical) if uses_clin else model(images)
             all_preds.extend(outputs.argmax(dim=1).cpu().tolist())
             all_labels.extend(batch["label"].tolist())
 
@@ -145,6 +149,7 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
 
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     resolved_model = model_name or checkpoint.get("model_name", "resnet10")
+    use_clinical = checkpoint.get("use_clinical", False)
     print(f"[INFO] Modelo: {resolved_model}")
     model = get_model(resolved_model).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -159,7 +164,8 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
     print(ckpt_info)
 
     # Inferencia
-    loader = get_dataloader(split, shuffle=False, num_workers=0, dataset=dataset, subset=subset)
+    loader = get_dataloader(split, shuffle=False, num_workers=0, dataset=dataset,
+                            subset=subset, use_clinical=use_clinical)
     print(f"[INFO] Evaluando sobre '{split}' ({len(loader.dataset)} muestras)...")
 
     all_labels, all_preds = collect_predictions(model, loader, device)
