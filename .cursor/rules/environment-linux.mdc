@@ -1,0 +1,73 @@
+---
+description: Entorno Linux (NAS compartida), GPU y flujo de ejecución del pipeline.
+globs: []
+alwaysApply: true
+---
+
+# Regla: Entorno Linux y servidor compartido
+
+## Alcance
+
+Este proyecto se ejecuta en **Linux** (bash). Usar rutas POSIX (`/media/nas/...`, `source .venv/bin/activate`), no rutas ni activación de entorno de Windows.
+
+## Proyecto (resumen)
+
+TFG: detección de Alzheimer con CNNs 3D sobre MRI (OASIS-3). Pipeline: NIfTI/ANALYZE → preprocesado offline (tensores `.pt`) → entrenamiento (`resnet10`, `densenet121`, `multimodal_densenet`, etc.). La **selección del mejor modelo** en `src/train.py` usa **val clinical F2** (ponderado; ver `cfg.CLINICAL_F2_WEIGHTS`); también se registran **macro F2** y otras métricas.
+
+## Datos (NAS)
+
+- Raíz habitual del repo: `/media/nas/aflorez/Deteccion-de-Alzheimer-con-MRI-3D`
+- Estructura esperada:
+  - `data/raw/OASIS-3/<OAS3XXXX_MR_dYYYY>/.../*T1w*.nii.gz` — crudos (oasis-scripts)
+  - `data/splits/oasis3_{train,val,test}.csv` — rutas NIfTI (generar con `prepare_oasis3_nifti_splits.py`)
+  - `data/preprocessed/oasis3/*.pt` — tensores preprocesados
+  - `data/splits/oasis3_*_pt.csv` — índices train/val/test hacia `.pt`
+  - `data/oasis3_master_clinical.csv` — metadata clínica
+
+## Servidor compartido — GPU
+
+Antes de cualquier entrenamiento o job que use GPU:
+
+```bash
+nvidia-smi
+```
+
+Solo lanzar entrenamientos si hay VRAM suficiente libre.
+
+## Rutas tras migrar desde Windows
+
+Si los CSV apuntan a rutas Windows o a un layout BIDS distinto del real en `data/raw/OASIS-3/`:
+
+```bash
+python prepare_oasis3_nifti_splits.py   # oasis3_{train,val,test}.csv con rutas Linux
+python preprocess_to_pt.py --dataset oasis3
+```
+
+Si los `.pt` ya existen y solo hace falta regenerar `*_pt.csv` con otro matching/split: `python prepare_oasis3_splits.py`.
+
+## Configuración
+
+Ajustar en `src/config.py` según VRAM y CPU (`nvidia-smi`):
+
+- `BATCH_SIZE` (p. ej. 4–16)
+- `NUM_WORKERS` (p. ej. 4–12)
+
+## Verificación rápida en el servidor
+
+```bash
+nvidia-smi
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+python preprocess_to_pt.py --dataset oasis3
+python run_pipeline.py --dataset oasis3 --model resnet10 --run-name test
+```
+
+## Flujo de trabajo típico
+
+1. `nvidia-smi` — comprobar GPU libre
+2. Ajustar `BATCH_SIZE` / `NUM_WORKERS` en `src/config.py`
+3. `python run_pipeline.py --dataset oasis3 --model resnet10 --run-name <nombre>`
+4. Resultados en `outputs/<nombre>/`
+
+## Política de archivos
+
+No eliminar resultados históricos en `outputs/` salvo petición explícita del usuario. Preferir `.gitignore` o documentar archivos obsoletos en lugar de borrar el historial de experimentos.

@@ -8,6 +8,10 @@ entrenamiento (~1.4s/batch -> ~0.01s/batch).
 
 Genera tambien CSVs de splits con rutas a los .pt.
 
+OASIS-3 (Linux): los CSV NIfTI con rutas validas se generan con
+`prepare_oasis3_nifti_splits.py` (entrada: cfg.OASIS3_RAW_DIR, p. ej.
+data/raw/OASIS-3/). Luego este script lee data/splits/oasis3_{train,val,test}.csv.
+
 Uso:
     python preprocess_to_pt.py                     # OASIS-3 (default)
     python preprocess_to_pt.py --dataset oasis1    # OASIS-1
@@ -54,8 +58,9 @@ def build_preprocess_pipeline() -> Compose:
 
 
 def derive_pt_filename(image_path: str) -> str:
-    """Genera un nombre unico .pt a partir de la ruta original."""
+    """Genera un nombre unico .pt a partir de la ruta original (.nii.gz / .nii)."""
     p = Path(image_path)
+    # p.stem de foo.nii.gz es foo.nii; quitar sufijo .nii para alinear con nombres previos
     return p.stem.replace(".nii", "") + ".pt"
 
 

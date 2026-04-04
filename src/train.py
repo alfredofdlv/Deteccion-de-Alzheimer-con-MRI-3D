@@ -42,8 +42,8 @@ from sklearn.metrics import fbeta_score
 from src.config import cfg
 from src.data_utils import load_split
 from src.dataset import describe_transforms, get_dataloader
+from src.losses import OrdinalClinicalF2Loss
 from src.model import AVAILABLE_MODELS, get_model
-from monai.losses import FocalLoss
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +94,47 @@ def compute_class_weights(dataset: str = "oasis1") -> torch.Tensor:
     w = torch.tensor(weights, dtype=torch.float32)
     print(f"[INFO] Class weights: {w.tolist()}")
     return w
+
+
+def compute_pos_weight(dataset: str = "oasis1") -> torch.Tensor:
+    """
+    Calcula pos_weight para BCEWithLogitsLoss en modo ordinal (2 umbrales).
+
+    Umbral 0 — P(Y >= MCI): positivos = MCI + AD
+    Umbral 1 — P(Y >= AD) : positivos = AD
+
+    pos_weight[k] = N_neg_k / N_pos_k  (usado por BCEWithLogitsLoss para compensar imbalanza).
+    """
+    df = load_split("train", dataset=dataset)
+    counts = df["label"].value_counts().sort_index()
+    n_cn  = int(counts.get(0, 1))
+    n_mci = int(counts.get(1, 1))
+    n_ad  = int(counts.get(2, 1))
+    n_total = n_cn + n_mci + n_ad
+
+    # Umbral 0: positivos = MCI + AD; negativos = CN
+    pos0 = n_mci + n_ad
+    neg0 = n_cn
+    # Umbral 1: positivos = AD; negativos = CN + MCI
+    pos1 = n_ad
+    neg1 = n_cn + n_mci
+
+    pw = torch.tensor([neg0 / max(pos0, 1), neg1 / max(pos1, 1)], dtype=torch.float32)
+    print(f"[INFO] Ordinal pos_weight: {pw.tolist()}  "
+          f"(N_CN={n_cn}, N_MCI={n_mci}, N_AD={n_ad})")
+    return pw
+
+
+def decode_preds(outputs: torch.Tensor, model: torch.nn.Module) -> torch.Tensor:
+    """
+    Decodifica logits a clases {0, 1, 2} de forma compatible con modelo estándar y ordinal.
+
+    Estándar: argmax sobre 3 logits.
+    Ordinal:  suma de umbrales > 0.5 → 0 (CN), 1 (MCI), 2 (AD).
+    """
+    if getattr(model, "uses_ordinal", False):
+        return (torch.sigmoid(outputs) > 0.5).sum(dim=1)
+    return outputs.argmax(dim=1)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +201,7 @@ def train_one_epoch(
         optimizer.step()
 
         running_loss += loss.item() * images.size(0)
-        preds = outputs.argmax(dim=1)
+        preds = decode_preds(outputs, model)
         correct += (preds == labels).sum().item()
         total += images.size(0)
         all_preds.extend(preds.cpu().tolist())
@@ -210,7 +251,7 @@ def evaluate(
             loss = criterion(outputs, labels)
 
             running_loss += loss.item() * images.size(0)
-            preds = outputs.argmax(dim=1)
+            preds = decode_preds(outputs, model)
             correct += (preds == labels).sum().item()
             total += images.size(0)
             all_preds.extend(preds.cpu().tolist())
@@ -367,6 +408,7 @@ def train(
     subset: int | None = None,
     model_name: str = "resnet10",
     use_clinical: bool | None = None,
+    ordinal: bool = False,
 ) -> None:
     """
     Funcion principal de entrenamiento.
@@ -377,12 +419,14 @@ def train(
                           100 epochs (sanity check de convergencia).
         run_name: Nombre de la carpeta dentro de outputs/ para esta ejecucion.
                   Si None, se genera uno automatico con timestamp.
-        patience: Epochs sin mejora en val clinical F1 antes de early stopping.
+        patience: Epochs sin mejora en val clinical F2 antes de early stopping.
         dataset: Identificador del dataset ('oasis1' o 'oasis3').
         subset: Limitar cada split a N samples (para pruebas rapidas).
         model_name: Nombre del modelo.
-        use_clinical: Si True, pasa covariables clínicas al modelo.
+        use_clinical: Si True, pasa covariables clinicas al modelo.
                       Por defecto True para 'multimodal_densenet', False para el resto.
+        ordinal: Si True, usa OrdinalClinicalF2Loss (solo compatible con densenet121
+                 y multimodal_densenet). El modelo emitira 2 logits en lugar de 3.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
@@ -394,14 +438,24 @@ def train(
     if use_clinical is None:
         use_clinical = (model_name == "multimodal_densenet")
 
-    model = get_model(model_name).to(device)
-    print(f"[INFO] Modelo: {model_name}")
+    model = get_model(model_name, ordinal=ordinal).to(device)
+    uses_ordinal = getattr(model, "uses_ordinal", False)
+    print(f"[INFO] Modelo: {model_name} | ordinal={uses_ordinal}")
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[INFO] Parametros entrenables: {n_params:,}")
 
-    class_weights = compute_class_weights(dataset=dataset).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
-    # criterion = FocalLoss(weight=class_weights, gamma=2.0, to_onehot_y=True)
+    if uses_ordinal:
+        pos_weight = compute_pos_weight(dataset=dataset).to(device)
+        criterion = OrdinalClinicalF2Loss(
+            weights=cfg.CLINICAL_F2_WEIGHTS,
+            alpha=0.5,
+            pos_weight=pos_weight,
+        )
+        print(f"[INFO] Loss: OrdinalClinicalF2Loss (alpha=0.5)")
+        class_weights = None  # no usado por OrdinalClinicalF2Loss
+    else:
+        class_weights = compute_class_weights(dataset=dataset).to(device)
+        criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
 
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY,
@@ -436,7 +490,7 @@ def train(
             loss.backward()
             optimizer.step()
 
-            preds = outputs.argmax(dim=1)
+            preds = decode_preds(outputs, model)
             acc = (preds == labels).float().mean().item()
 
             if epoch % 10 == 0 or epoch == 1:
@@ -534,6 +588,7 @@ def train(
                 "epoch": epoch,
                 "model_name": model_name,
                 "use_clinical": use_clinical,
+                "uses_ordinal": uses_ordinal,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
@@ -583,9 +638,10 @@ def train(
     elapsed_total = time.time() - t_start
 
     _save_plots(history, run_dir)
+    cw_list = class_weights.cpu().tolist() if class_weights is not None else "N/A (ordinal)"
     _save_summary(
         history, run_dir, device, n_params, elapsed_total,
-        class_weights.cpu().tolist(),
+        cw_list,
         early_stopped=early_stopper.triggered,
         patience=patience,
         model_name=model_name,
@@ -620,6 +676,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="resnet10",
                         choices=AVAILABLE_MODELS,
                         help="Modelo a usar (default: resnet10)")
+    parser.add_argument("--ordinal", action="store_true",
+                        help="Usar perdida ordinal BCE + soft F2 (solo densenet121 / multimodal_densenet)")
     args = parser.parse_args()
 
     train(
@@ -630,4 +688,5 @@ if __name__ == "__main__":
         dataset=args.dataset,
         subset=args.subset,
         model_name=args.model,
+        ordinal=args.ordinal,
     )

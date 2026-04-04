@@ -38,11 +38,31 @@ from src.model import AVAILABLE_MODELS, get_model
 
 CLASS_NAMES = ["CN", "MCI", "AD"]
 
-# Capa objetivo para Grad-CAM por arquitectura
+# Capa objetivo para Grad-CAM por arquitectura.
+# DenseNet: net.features.denseblock4 es el último bloque denso con mapa espacial
+# presente (~3x3x3 para entrada 96³). net.class_layers viene DESPUÉS del avg_pool
+# (colapsa dimensiones espaciales), por lo que Grad-CAM sobre ella produce heatmaps
+# uniformes sin localización.
 TARGET_LAYERS: dict[str, str] = {
-    "resnet10": "net.layer4",
-    "densenet121": "net.class_layers.relu",
+    "resnet10":    "net.layer4",
+    "densenet121": "net.features.denseblock4",
 }
+
+# Mapeo de clase nominal (0=CN,1=MCI,2=AD) al índice de logit ordinal.
+# En modo ordinal el modelo produce 2 logits: [P(Y>=MCI), P(Y>=AD)].
+# Para Grad-CAM usamos el logit más discriminativo para la clase pedida.
+_ORDINAL_CLASS_IDX: dict[int, int] = {
+    0: 0,   # CN  → umbral P(Y>=MCI); activación baja = CN
+    1: 0,   # MCI → umbral P(Y>=MCI)
+    2: 1,   # AD  → umbral P(Y>=AD)
+}
+
+
+def _resolve_class_idx(class_idx: int, uses_ordinal: bool) -> int:
+    """Traduce class_idx nominal al índice de logit correcto según el modo del modelo."""
+    if uses_ordinal:
+        return _ORDINAL_CLASS_IDX.get(class_idx, class_idx)
+    return class_idx
 
 
 # ---------------------------------------------------------------------------
@@ -171,10 +191,12 @@ def explain_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
 
-    # --- Cargar checkpoint y modelo (mismo patrón que evaluate.py:150-155) ---
+    # --- Cargar checkpoint y modelo (mismo patrón que evaluate.py) ---
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     resolved_model = model_name or checkpoint.get("model_name", "resnet10")
-    print(f"[INFO] Modelo: {resolved_model}")
+    uses_ordinal = checkpoint.get("uses_ordinal", False)
+    use_clinical = checkpoint.get("use_clinical", False)
+    print(f"[INFO] Modelo: {resolved_model} | ordinal={uses_ordinal}")
 
     if resolved_model not in TARGET_LAYERS:
         raise ValueError(
@@ -182,7 +204,7 @@ def explain_model(
             f"Modelos compatibles: {list(TARGET_LAYERS.keys())}"
         )
 
-    model = get_model(resolved_model).to(device)
+    model = get_model(resolved_model, ordinal=uses_ordinal).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -204,6 +226,7 @@ def explain_model(
         shuffle=False,
         num_workers=0,
         dataset=dataset,
+        use_clinical=use_clinical,
     )
     print(
         f"[INFO] Test set: {len(loader.dataset)} muestras | "
@@ -219,12 +242,18 @@ def explain_model(
 
         total_scanned += 1
         image = batch["image"].to(device)   # (1, 1, 96, 96, 96)
+        clinical = batch.get("clinical")
+        if clinical is not None:
+            clinical = clinical.to(device)
         true_label = int(batch["label"].item())
 
-        # Predicción sin gradientes
+        # Predicción sin gradientes — decodificación compatible con modo ordinal
         with torch.no_grad():
-            logits = model(image)
-        pred_label = int(logits.argmax(dim=1).item())
+            logits = model(image, clinical) if use_clinical else model(image)
+        if uses_ordinal:
+            pred_label = int((torch.sigmoid(logits) > 0.5).sum(dim=1).item())
+        else:
+            pred_label = int(logits.argmax(dim=1).item())
 
         # Solo muestras correctamente clasificadas de las clases objetivo
         if pred_label != true_label or pred_label not in target_classes:
@@ -236,8 +265,9 @@ def explain_model(
             f"(escaneadas: {total_scanned})"
         )
 
-        # Calcular Grad-CAM
-        heatmap = compute_gradcam(cam, image, class_idx=pred_label)  # (D, H, W)
+        # Grad-CAM: traducir class_idx al logit correcto según el modo del modelo
+        gradcam_idx = _resolve_class_idx(pred_label, uses_ordinal)
+        heatmap = compute_gradcam(cam, image, class_idx=gradcam_idx)  # (D, H, W)
 
         # Extraer volumen MRI como numpy para visualización
         img_np = image[0, 0].detach().cpu().numpy()  # (D, H, W)

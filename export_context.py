@@ -35,7 +35,7 @@ def collect_py_files(src_dir: Path) -> list[Path]:
     """Recopila todos los .py de src/ ordenados lógicamente."""
     files = sorted(src_dir.glob("*.py"))
     priority = ["__init__.py", "config.py", "data_utils.py", "data_prepare.py",
-                "dataset.py", "model.py", "train.py", "evaluate.py"]
+                "dataset.py", "model.py", "train.py", "evaluate.py","losses.py"]
     ordered = []
     for name in priority:
         p = src_dir / name

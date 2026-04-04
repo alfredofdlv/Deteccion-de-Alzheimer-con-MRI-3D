@@ -1,13 +1,17 @@
 """
-prepare_oasis3_splits.py — Genera los splits train/val/test para OASIS-3 a partir
-de los tensores .pt ya preprocesados y el CSV clínico.
+prepare_oasis3_splits.py — Genera oasis3_{train,val,test}_pt.csv a partir de los
+tensores .pt ya existentes en data/preprocessed/oasis3/ y el CSV clínico.
 
-Los ficheros NIfTI originales estaban en Windows y no están en el servidor.
-Este script genera directamente los CSVs *_pt.csv apuntando a los .pt del NAS.
+Cuándo usar cada script (pipeline Linux recomendado):
+  - **Tienes NIfTI en cfg.OASIS3_RAW_DIR y aún no tienes .pt:** ejecuta primero
+    `prepare_oasis3_nifti_splits.py` (genera oasis3_{train,val,test}.csv con rutas
+    Linux) y luego `preprocess_to_pt.py --dataset oasis3` (crea los .pt y los *_pt.csv).
+  - **Ya tienes .pt y quieres regenerar solo los *_pt.csv** (p. ej. nuevo split
+    o re-matching clínico sin volver a pasar por NIfTI): usa este script.
 
 Estrategia de matching .pt <-> etiqueta clínica:
   Para cada escáner (subject_id, scan_day), busca la visita clínica más cercana
-  del mismo sujeto en oasis3_master_clinical.csv (ventana máx: ±365 días).
+  del mismo sujeto en oasis3_master_clinical.csv (ventana máx: ±365 días por defecto).
 
 Split sujeto-nivel estratificado (70/15/15) para evitar data leakage.
 
@@ -143,7 +147,7 @@ def main():
     args = parser.parse_args()
 
     pt_dir = cfg.PREPROCESSED_DIR / "oasis3"
-    clinical_csv = cfg.DATA_DIR / "oasis3_master_clinical.csv"
+    clinical_csv = cfg.OASIS3_CLINICAL_CSV
     splits_dir = cfg.DATA_SPLITS_DIR
     splits_dir.mkdir(parents=True, exist_ok=True)
 

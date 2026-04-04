@@ -1,6 +1,6 @@
 ---
 description: Contexto completo del proyecto TFG Alzheimer. Consultar SIEMPRE antes de hacer cualquier cambio.
-globs:
+globs: []
 alwaysApply: true
 ---
 
@@ -20,8 +20,9 @@ Antes de realizar CUALQUIER tarea en este proyecto, **lee obligatoriamente** los
 - **Dataset activo**: OASIS-3 (2450 sesiones MRI, splits: 1731/369/350)
 - **Clasificacion**: 3 clases basadas en CDR: CN (CDR=0), MCI (CDR=0.5), AD (CDR>=1)
 - **Distribucion**: Clases desbalanceadas (CN mayoritaria, AD minoritaria)
-- **Modelo**: `AlzheimerResNet` — ResNet-10 3D de MONAI (~14.3M parametros)
-- **Metrica de seleccion**: **Macro F1-score** (robusto ante class imbalance)
+- **Modelos**: Por defecto `AlzheimerResNet` (ResNet-10 3D MONAI, ~14.3M parametros). Tambien `densenet121`, `multimodal_densenet` (imagen + covariables clinicas; ver `src/model.py`)
+- **Metrica de seleccion del modelo** (checkpoint, early stopping): **val clinical F2** — F2 por clase ponderado con `cfg.CLINICAL_F2_WEIGHTS` (prioriza AD/MCI). Ver `src/train.py`
+- **Metricas adicionales logueadas**: macro F2 (`macro_f2` / columnas `train_f2`, `val_f2` en CSV), accuracy, loss
 - **Stack**: Python 3.10, PyTorch, MONAI, Pandas, scikit-learn
 - **Datos preprocesados**: tensores `.pt` offline para acelerar entrenamiento
 
@@ -42,18 +43,18 @@ src/
 ├── config.py        # Configuracion centralizada
 ├── data_prepare.py  # ETL OASIS-1: extraccion, CSV maestro, splits
 ├── data_utils.py    # Carga de splits (auto-detecta .pt vs NIfTI)
-├── dataset.py       # MONAI transforms (NIfTI y .pt) + DataLoaders
-├── model.py         # AlzheimerResNet (ResNet-10 3D de MONAI)
-├── train.py         # Training loop (macro F1, early stopping)
+├── dataset.py       # MONAI transforms (NIfTI y .pt) + DataLoaders (+ opcional multimodal)
+├── model.py         # ResNet-10, DenseNet121, multimodal_densenet, etc.
+├── train.py         # Training loop (early stopping por val clinical F2)
 └── evaluate.py      # Evaluacion en test set + metricas + confusion matrix
 ```
 
 ## Decisiones tecnicas vigentes
 
-- **Modelo**: ResNet-10 3D de MONAI (reemplazo de Simple3DCNN manual)
+- **Modelo principal**: ResNet-10 3D de MONAI; alternativas en `AVAILABLE_MODELS` (`src/model.py`)
+- **Multimodal**: `multimodal_densenet` usa covariables clinicas cuando el DataLoader las provee (`uses_clinical=True`)
 - **Label smoothing**: 0.1 — ayuda a distribuir mejor las predicciones entre clases
-- **Early stopping**: Por **macro F1** — metrica robusta para datasets desbalanceados
-- **Seleccion de modelo**: Mejor **val macro F1** (no accuracy)
+- **Early stopping y mejor checkpoint**: Por **val clinical F2** (no accuracy)
 - **Data augmentation**: RandFlip, RandRotate, RandGaussianNoise, RandShiftIntensity
 - **Preprocesamiento offline**: NIfTI -> .pt para reducir I/O de ~1.4s a ~0.05s por batch
 
@@ -63,3 +64,7 @@ src/
 2. Implementar Grad-CAM para explicabilidad
 3. Considerar cross-validation
 4. Explorar fine-tuning de hiperparametros
+
+## Entorno Linux
+
+Para NAS compartida, GPU y comandos (`nvidia-smi`, regenerar CSV), ver la regla complementaria **environment-linux** (`.cursor/rules/environment-linux.mdc`).

@@ -10,6 +10,7 @@ Uso:
     python run_pipeline.py mi-experimento --epochs 80 --patience 30
     python run_pipeline.py mi-experimento --no-export
     python run_pipeline.py mi-experimento --dataset oasis3
+    python run_pipeline.py mi-run --dataset oasis3 --model densenet121 --ordinal
 """
 
 import argparse
@@ -107,6 +108,10 @@ def main():
         choices=["resnet10", "simple3dcnn", "densenet121", "multimodal_densenet"],
         help="Modelo a usar (default: resnet10)",
     )
+    parser.add_argument(
+        "--ordinal", action="store_true",
+        help="Pérdida ordinal BCE + soft F2 (solo densenet121 / multimodal_densenet); se pasa a src.train",
+    )
     args = parser.parse_args()
 
     # Crear directorio de salida y abrir fichero de log
@@ -129,6 +134,8 @@ def main():
         train_cmd += ["--patience", str(args.patience)]
     if args.subset is not None:
         train_cmd += ["--subset", str(args.subset)]
+    if args.ordinal:
+        train_cmd += ["--ordinal"]
     run_step_with_log("PASO 1/3 — Entrenamiento", train_cmd, log_file)
 
     # 2. Evaluar

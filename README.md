@@ -14,7 +14,7 @@ Se emplea un **ResNet-10 3D** (de MONAI) entrenado sobre los datasets [OASIS-1](
 | MCI   | 0.5  | Deterioro Cognitivo Leve |
 | AD    | >= 1 | Enfermedad de Alzheimer  |
 
-La metrica principal de seleccion de modelo es **macro F1-score**, robusta ante el desbalance de clases.
+La seleccion del mejor modelo en entrenamiento usa **clinical F2** (ponderado por clase; prioriza AD/MCI); tambien se registran **macro F2** y otras metricas. Ver `src/train.py` y `Docs/Context.md`.
 
 ### Stack Tecnologico
 
@@ -48,7 +48,9 @@ tfg/
 ├── data/                   # Datos (no versionados)
 ├── run_pipeline.py         # Pipeline CLI: train -> evaluate -> export
 ├── benchmark.py            # Medicion de tiempos del pipeline
-├── preprocess_to_pt.py     # Preprocesamiento offline a tensores .pt
+├── prepare_oasis3_nifti_splits.py  # Splits NIfTI Linux desde data/raw/OASIS-3/
+├── prepare_oasis3_splits.py        # Regenerar *_pt.csv desde .pt + clinica
+├── preprocess_to_pt.py             # Preprocesamiento offline a tensores .pt
 ├── export_context.py       # Exportar codigo a Markdown
 ├── requirements.txt
 ├── DIARIO.md               # Historial de experimentos
@@ -85,8 +87,8 @@ pip install -r requirements.txt
 
 **OASIS-3:**
 
-1. Usa `scripts/download_oasis3.py` o el notebook `notebooks/pipeline_oasis3.ipynb`.
-2. Los datos se organizan en `data/OASIS-3/` en formato BIDS.
+1. Descarga T1w con `oasis-scripts` (p. ej. `download_oasis_scans.sh`) hacia `data/raw/OASIS-3/` (ver `Docs/DOWNLOAD_OASIS3_T1w.md`).
+2. Genera splits NIfTI con rutas Linux: `python prepare_oasis3_nifti_splits.py`
 
 ### 4. Ejecutar el pipeline ETL
 
@@ -94,7 +96,8 @@ pip install -r requirements.txt
 # OASIS-1: extrae imagenes, genera CSV maestro, crea splits
 python -m src.data_prepare
 
-# OASIS-3: ejecutar el notebook pipeline_oasis3.ipynb
+# OASIS-3 (Linux): splits NIfTI desde data/raw/OASIS-3/ (opcional: notebook notebooks/pipeline_oasis3.ipynb para exploracion)
+python prepare_oasis3_nifti_splits.py
 ```
 
 ### 5. Preprocesamiento offline (recomendado)
@@ -147,7 +150,7 @@ python benchmark.py --dataset oasis3 --batches 15 --label "Mi config"
 
 - Datasets: OASIS-1 (235 sujetos) y OASIS-3 (2450 sesiones MRI)
 - Modelo: AlzheimerResNet (ResNet-10 3D de MONAI, ~14.3M parametros)
-- Metrica de seleccion: macro F1-score
+- Metrica de seleccion (checkpoint): val clinical F2 (ver `src/train.py`)
 - Datos preprocesados offline a tensores .pt
 - Sprints 1-4 completados, Sprint 5 (Explainability) pendiente
 

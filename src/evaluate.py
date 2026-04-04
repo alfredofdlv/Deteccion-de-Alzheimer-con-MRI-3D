@@ -34,6 +34,7 @@ from sklearn.metrics import (
 from src.config import cfg
 from src.dataset import get_dataloader
 from src.model import AVAILABLE_MODELS, get_model
+from src.train import decode_preds
 
 
 CLASS_NAMES = ["CN", "MCI", "AD"]
@@ -64,7 +65,7 @@ def collect_predictions(
             if clinical is not None:
                 clinical = clinical.to(device)
             outputs = model(images, clinical) if uses_clin else model(images)
-            all_preds.extend(outputs.argmax(dim=1).cpu().tolist())
+            all_preds.extend(decode_preds(outputs, model).cpu().tolist())
             all_labels.extend(batch["label"].tolist())
 
             if i % log_every == 0 or i == n_batches:
@@ -150,8 +151,9 @@ def evaluate_model(run_name: str, split: str = "test", dataset: str = "oasis1",
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     resolved_model = model_name or checkpoint.get("model_name", "resnet10")
     use_clinical = checkpoint.get("use_clinical", False)
-    print(f"[INFO] Modelo: {resolved_model}")
-    model = get_model(resolved_model).to(device)
+    uses_ordinal = checkpoint.get("uses_ordinal", False)
+    print(f"[INFO] Modelo: {resolved_model} | ordinal={uses_ordinal}")
+    model = get_model(resolved_model, ordinal=uses_ordinal).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     val_clinical_f2 = checkpoint.get("val_clinical_f2")
     ckpt_info = (

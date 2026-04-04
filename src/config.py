@@ -44,6 +44,13 @@ class ProjectConfig:
     MASTER_CSV_PATH: Path = DATA_PROCESSED_DIR / "dataset_master.csv"
 
     # ========================
+    # Rutas específicas OASIS-3 (Linux / NAS)
+    # ========================
+    # T1w descargados con oasis-scripts → data/raw/OASIS-3/<OAS3XXXX_MR_dYYYY>/anatN/...
+    OASIS3_RAW_DIR: Path = DATA_DIR / "raw" / "OASIS-3"
+    OASIS3_CLINICAL_CSV: Path = DATA_DIR / "oasis3_master_clinical.csv"
+
+    # ========================
     # Ratios de partición
     # ========================
     TRAIN_RATIO: float = 0.70

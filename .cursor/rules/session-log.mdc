@@ -1,6 +1,6 @@
 ---
 description: Regla para mantener el diario de sesión (DIARIO.md). Aplicar al final de cada sesión de trabajo significativa.
-globs:
+globs: []
 alwaysApply: true
 ---
 

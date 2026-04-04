@@ -106,15 +106,24 @@ class AlzheimerResNet(nn.Module):
 class AlzheimerDenseNet(nn.Module):
     """
     DenseNet-121 3D para clasificacion de volumenes cerebrales MRI.
-    Wrapper de monai.networks.nets.DenseNet121: entrada 3D monocanal,
-    3 clases de salida. ~7.9M parametros.
+    Wrapper de monai.networks.nets.DenseNet121: entrada 3D monocanal. ~7.9M parametros.
+
+    Args:
+        num_classes: Numero de clases de salida (ignorado si ordinal=True).
+        ordinal:     Si True, la capa final emite 2 logits ordinales en lugar de
+                     num_classes. Los 2 logits representan P(Y>=MCI) y P(Y>=AD).
+                     Requiere OrdinalClinicalF2Loss y decodificacion con decode_preds().
     """
-    def __init__(self, num_classes: int = cfg.NUM_CLASSES):
+    uses_ordinal: bool = False  # marcador leido por train/evaluate
+
+    def __init__(self, num_classes: int = cfg.NUM_CLASSES, ordinal: bool = False):
         super().__init__()
+        self.uses_ordinal = ordinal
+        out_channels = 2 if ordinal else num_classes
         self.net = DenseNet121(
             spatial_dims=3,
             in_channels=1,
-            out_channels=num_classes,
+            out_channels=out_channels,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -127,20 +136,33 @@ class AlzheimerDenseNet(nn.Module):
 
 class MultimodalDenseNet(nn.Module):
     """
-    Fusión Multimodal: DenseNet-121 3D (MRI) + vector clínico (Age, Sex, Educ, APOE4).
+    Fusion Multimodal: DenseNet-121 3D (MRI) + vector clinico (Age, Sex, Educ, APOE4).
 
     Arquitectura:
         - Backbone: DenseNet121(out_channels=256)  -> img_emb (B, 256)
         - Fusion:   cat([img_emb, clinical_4])     -> (B, 260)
-        - MLP head: Linear(260, 64) -> BN1d -> ReLU -> Dropout(0.3) -> Linear(64, 3)
+        - MLP head: Linear(260, 64) -> BN1d -> ReLU -> Dropout(0.3) -> Linear(64, out)
 
     El atributo de clase `uses_clinical = True` permite que train/evaluate
     detecten el modo multimodal sin acoplamiento por isinstance.
-    """
-    uses_clinical: bool = True  # marker for train/evaluate dispatch
 
-    def __init__(self, num_classes: int = cfg.NUM_CLASSES, num_clinical: int = 4):
+    Args:
+        num_classes:  Numero de clases (ignorado si ordinal=True).
+        num_clinical: Dimension del vector clinico (default: 4).
+        ordinal:      Si True, la capa final emite 2 logits ordinales.
+    """
+    uses_clinical: bool = True   # marcador leido por train/evaluate
+    uses_ordinal: bool = False   # marcador leido por train/evaluate
+
+    def __init__(
+        self,
+        num_classes: int = cfg.NUM_CLASSES,
+        num_clinical: int = 4,
+        ordinal: bool = False,
+    ):
         super().__init__()
+        self.uses_ordinal = ordinal
+        out_classes = 2 if ordinal else num_classes
         self.feature_extractor = DenseNet121(
             spatial_dims=3,
             in_channels=1,
@@ -151,7 +173,7 @@ class MultimodalDenseNet(nn.Module):
             nn.BatchNorm1d(64),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.3),
-            nn.Linear(64, num_classes),
+            nn.Linear(64, out_classes),
         )
 
     def forward(self, x: torch.Tensor, clinical: torch.Tensor | None = None) -> torch.Tensor:
@@ -169,11 +191,13 @@ class MultimodalDenseNet(nn.Module):
 AVAILABLE_MODELS = ["resnet10", "simple3dcnn", "densenet121", "multimodal_densenet"]
 
 
-def get_model(name: str = "resnet10") -> nn.Module:
+def get_model(name: str = "resnet10", ordinal: bool = False) -> nn.Module:
     """Instancia un modelo por nombre.
 
     Args:
-        name: 'resnet10', 'simple3dcnn', 'densenet121' o 'multimodal_densenet'.
+        name:    'resnet10', 'simple3dcnn', 'densenet121' o 'multimodal_densenet'.
+        ordinal: Si True, los modelos DenseNet emiten 2 logits ordinales en lugar de
+                 cfg.NUM_CLASSES. Ignorado para resnet10 y simple3dcnn.
 
     Returns:
         nn.Module listo para .to(device).
@@ -183,9 +207,9 @@ def get_model(name: str = "resnet10") -> nn.Module:
     elif name == "simple3dcnn":
         return Simple3DCNN()
     elif name == "densenet121":
-        return AlzheimerDenseNet()
+        return AlzheimerDenseNet(ordinal=ordinal)
     elif name == "multimodal_densenet":
-        return MultimodalDenseNet()
+        return MultimodalDenseNet(ordinal=ordinal)
     else:
         raise ValueError(f"Modelo '{name}' no reconocido. Opciones: {AVAILABLE_MODELS}")
 
@@ -195,22 +219,32 @@ if __name__ == "__main__":
     dummy = torch.randn(1, 1, 96, 96, 96, device=device)
     dummy_clinical = torch.randn(1, 4, device=device)
 
-    for name in AVAILABLE_MODELS:
+    configs = (
+        [(name, False) for name in AVAILABLE_MODELS]
+        + [("densenet121", True), ("multimodal_densenet", True)]
+    )
+
+    for name, ordinal in configs:
         print(f"\n{'=' * 50}")
-        print(f"Modelo: {name}")
+        print(f"Modelo: {name} | ordinal={ordinal}")
         print(f"{'=' * 50}")
-        model = get_model(name).to(device).eval()
+        model = get_model(name, ordinal=ordinal).to(device).eval()
         if getattr(model, "uses_clinical", False):
             out = model(dummy, dummy_clinical)
         else:
             out = model(dummy)
 
         n_params = sum(p.numel() for p in model.parameters())
-        print(f"  Device:       {device}")
-        print(f"  Input shape:  {dummy.shape}")
+        print(f"  Device:        {device}")
+        print(f"  Input shape:   {dummy.shape}")
         if getattr(model, "uses_clinical", False):
-            print(f"  Clinical shape: {dummy_clinical.shape}")
-        print(f"  Output shape: {out.shape}")
-        print(f"  Parametros:   {n_params:,}")
-        assert out.shape == (1, cfg.NUM_CLASSES)
+            print(f"  Clinical shape:{dummy_clinical.shape}")
+        print(f"  Output shape:  {out.shape}")
+        print(f"  Parametros:    {n_params:,}")
+        expected_out = 2 if ordinal else cfg.NUM_CLASSES
+        # Solo modelos DenseNet soportan ordinal
+        if ordinal and name not in ("densenet121", "multimodal_densenet"):
+            pass  # sin assert para modelos que no soportan ordinal
+        else:
+            assert out.shape == (1, expected_out), f"Esperado (1, {expected_out}), got {out.shape}"
         print(f"  CHECK PASSED")

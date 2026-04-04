@@ -2,7 +2,7 @@
 
 > **Fuente de verdad.** Este archivo describe el estado actual del proyecto. Los agentes AI deben consultarlo al inicio de cada sesion.
 >
-> Ultima actualizacion: 2026-03-11
+> Ultima actualizacion: 2026-04-03
 
 ---
 
@@ -36,10 +36,11 @@
 
 ### 3.2 Dataset OASIS-3 (Longitudinal) — Dataset activo
 
-- **2450 sesiones MRI** T1w de sujetos con CDR evaluado
-- Formato BIDS: `data/OASIS-3/sub-*/ses-*/*T1w.nii.gz`
-- Splits (subject-level, sin data leakage): **Train 1731 / Val 369 / Test 350**
-- Preprocesado offline a tensores `.pt` en `data/preprocessed/oasis3/`
+- **2450 sesiones MRI** T1w (una por sesion descargada; `run-01` preferido si hay varias)
+- Crudos en Linux: `data/raw/OASIS-3/<OAS3XXXX_MR_dYYYY>/anatN/*T1w*.nii.gz` (layout oasis-scripts / XNAT, no BIDS plano)
+- CSVs NIfTI con rutas absolutas Linux: `prepare_oasis3_nifti_splits.py` → `data/splits/oasis3_{train,val,test}.csv`
+- Splits (subject-level, sin data leakage, 70/15/15): **Train 1737 / Val 359 / Test 354** (2450 muestras)
+- Preprocesado offline: `preprocess_to_pt.py --dataset oasis3` → tensores `.pt` en `data/preprocessed/oasis3/` y `data/splits/oasis3_*_pt.csv`
 
 ### 3.3 Clases (basadas en CDR)
 
@@ -58,8 +59,8 @@ tfg/
 │   ├── data_prepare.py  # ETL OASIS-1: extraccion, CSV maestro, split estratificado
 │   ├── data_utils.py    # Carga de splits (auto-detecta .pt vs NIfTI)
 │   ├── dataset.py       # MONAI Dataset, transforms (NIfTI y .pt), DataLoaders
-│   ├── model.py         # AlzheimerResNet (ResNet-10 3D de MONAI)
-│   ├── train.py         # Training loop con early stopping por macro F1
+│   ├── model.py         # AlzheimerResNet, DenseNet121, multimodal_densenet, etc.
+│   ├── train.py         # Training loop; early stopping por val clinical F2
 │   └── evaluate.py      # Evaluacion en test set, confusion matrix
 ├── run_pipeline.py      # CLI: train -> evaluate -> export
 ├── benchmark.py         # Medicion de tiempos del pipeline
@@ -102,14 +103,14 @@ tfg/
 
 | Parametro | Valor actual |
 |-----------|-------------|
-| Optimizer | Adam (lr=1e-4, weight_decay=1e-4) |
+| Optimizer | Adam (lr=1e-4, weight_decay segun `src/config.py`, p. ej. 1e-3) |
 | Scheduler | ReduceLROnPlateau (factor=0.5, patience=5) |
 | Loss | CrossEntropyLoss + class weights + label_smoothing=0.1 |
 | Batch size | 4 |
 | num_workers | 4 |
-| Early stopping | patience=25 (sobre **macro F1**) |
-| Seleccion de modelo | **Mejor val macro F1** |
-| Metricas logueadas | loss, accuracy, macro F1 (train y val) |
+| Early stopping | patience=25 (sobre **val clinical F2**) |
+| Seleccion de modelo | **Mejor val clinical F2** (F2 por clase ponderado con `CLINICAL_F2_WEIGHTS`) |
+| Metricas logueadas | loss, accuracy, macro F2, clinical F2 (train y val); ver `training_log.csv` |
 
 ### 5.5 Benchmark de tiempos (RTX 2060, 6.4GB VRAM)
 
@@ -136,7 +137,7 @@ Ver `DIARIO.md` para el historial completo. Resumen:
 | 1 | Data Engineering (ETL, splits) | COMPLETADO |
 | 2 | MONAI Pipeline (transforms, DataLoaders) | COMPLETADO |
 | 3 | Modelado (Simple3DCNN, overfit test) | COMPLETADO |
-| 4 | Evaluacion y Refinamiento (OASIS-3, ResNet, macro F1) | COMPLETADO |
+| 4 | Evaluacion y Refinamiento (OASIS-3, ResNet, clinical F2 / macro F2) | COMPLETADO |
 | 5 | Explainability (Grad-CAM) | PENDIENTE |
 
 ## 8. Proximos pasos prioritarios
