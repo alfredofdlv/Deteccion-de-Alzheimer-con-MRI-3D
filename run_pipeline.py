@@ -11,6 +11,7 @@ Uso:
     python run_pipeline.py mi-experimento --no-export
     python run_pipeline.py mi-experimento --dataset oasis3
     python run_pipeline.py mi-run --dataset oasis3 --model densenet121 --ordinal
+    python run_pipeline.py densenet-late-fusion --dataset oasis3 --model densenet121 --no-export --late-fusion --run-source densenet-cropped
 """
 
 import argparse
@@ -112,6 +113,23 @@ def main():
         "--ordinal", action="store_true",
         help="Pérdida ordinal BCE + soft F2 (solo densenet121 / multimodal_densenet); se pasa a src.train",
     )
+    parser.add_argument(
+        "--late-fusion", action="store_true",
+        help="Ejecutar Late Fusion (XGBoost) tras la evaluacion, usando las features del CNN entrenado",
+    )
+    parser.add_argument(
+        "--run-source", type=str, default=None,
+        help="Run del que se cargan features para Late Fusion (default: el run actual)",
+    )
+    parser.add_argument(
+        "--smote", action="store_true",
+        help="Aplicar SMOTE en Late Fusion para balancear clases minoritarias (requiere --late-fusion)",
+    )
+    parser.add_argument(
+        "--grid-verbose", type=int, default=5,
+        metavar="N",
+        help="Verbose GridSearch en Late Fusion (0-50; default 5). Solo con --late-fusion",
+    )
     args = parser.parse_args()
 
     # Crear directorio de salida y abrir fichero de log
@@ -125,6 +143,8 @@ def main():
 
     py = sys.executable
 
+    total_steps = 4 if args.late_fusion else 3
+
     # 1. Entrenar
     train_cmd = [py, "-m", "src.train", "--run", args.name, "--dataset", args.dataset,
                  "--model", args.model]
@@ -136,16 +156,34 @@ def main():
         train_cmd += ["--subset", str(args.subset)]
     if args.ordinal:
         train_cmd += ["--ordinal"]
-    run_step_with_log("PASO 1/3 — Entrenamiento", train_cmd, log_file)
+    run_step_with_log(f"PASO 1/{total_steps} — Entrenamiento", train_cmd, log_file)
 
     # 2. Evaluar
     eval_cmd = [py, "-m", "src.evaluate", "--run", args.name, "--dataset", args.dataset,
                 "--model", args.model]
     if args.subset is not None:
         eval_cmd += ["--subset", str(args.subset)]
-    run_step_with_log("PASO 2/3 — Evaluacion (test set)", eval_cmd, log_file)
+    run_step_with_log(f"PASO 2/{total_steps} — Evaluacion (test set)", eval_cmd, log_file)
 
-    # 3. Exportar contexto (opcional)
+    # 3. Late Fusion (opcional)
+    if args.late_fusion:
+        lf_source = args.run_source if args.run_source else args.name
+        lf_cmd = [
+            py, "-m", "src.late_fusion",
+            "--run", lf_source,
+            "--dataset", args.dataset,
+        ]
+        if args.smote:
+            lf_cmd += ["--smote"]
+        lf_cmd += ["--grid-verbose", str(args.grid_verbose)]
+        run_step_with_log(
+            f"PASO 3/{total_steps} — Late Fusion XGBoost (extractor: {lf_source})",
+            lf_cmd,
+            log_file,
+        )
+
+    # 4. Exportar contexto (opcional)
+    step_n = total_steps
     md_path = f"outputs/{args.name}/{args.name}.md"
     if not args.no_export:
         export_cmd = [
@@ -153,9 +191,9 @@ def main():
             "--run", args.name,
             "-o", md_path,
         ]
-        run_step_with_log("PASO 3/3 — Exportar Markdown", export_cmd, log_file)
+        run_step_with_log(f"PASO {step_n}/{step_n} — Exportar Markdown", export_cmd, log_file)
     else:
-        _tee(f"\n{'=' * 60}\n  PASO 3/3 — Exportar Markdown (omitido: --no-export)\n{'=' * 60}\n", log_file)
+        _tee(f"\n{'=' * 60}\n  PASO {step_n}/{step_n} — Exportar Markdown (omitido: --no-export)\n{'=' * 60}\n", log_file)
 
     sep = "=" * 60
     summary = f"\n{sep}\n  Pipeline completada para '{args.name}'\n  Resultados en: outputs/{args.name}/\n"

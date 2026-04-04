@@ -10,6 +10,20 @@ alwaysApply: true
 
 Este proyecto se ejecuta en **Linux** (bash). Usar rutas POSIX (`/media/nas/...`, `source .venv/bin/activate`), no rutas ni activación de entorno de Windows.
 
+## Intérprete Python del usuario (venv)
+
+En este entorno el Python del proyecto suele ser **`/home/aflorez/venv/bin/python`** (no mezclar con el `python3` del sistema).
+
+Para **listar o detener** jobs lanzados desde ese venv (entrenamiento, `late_fusion`, etc.), filtrar por esa ruta en lugar de solo `python`:
+
+```bash
+ps aux | grep '/home/aflorez/venv/bin/python' | grep -v grep
+# Detener (ajustar el patrón al módulo, p. ej. late_fusion):
+pkill -TERM -f '/home/aflorez/venv/bin/python -m src.late_fusion'
+```
+
+Así se evita afectar otros procesos `python` del servidor que no sean de este proyecto.
+
 ## Proyecto (resumen)
 
 TFG: detección de Alzheimer con CNNs 3D sobre MRI (OASIS-3). Pipeline: NIfTI/ANALYZE → preprocesado offline (tensores `.pt`) → entrenamiento (`resnet10`, `densenet121`, `multimodal_densenet`, etc.). La **selección del mejor modelo** en `src/train.py` usa **val clinical F2** (ponderado; ver `cfg.CLINICAL_F2_WEIGHTS`); también se registran **macro F2** y otras métricas.
