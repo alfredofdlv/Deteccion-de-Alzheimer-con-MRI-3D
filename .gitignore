@@ -1,0 +1,26 @@
+# .gitignore para la release publica (snapshot limpio)
+/data/
+/outputs/
+/weights/
+*.nii
+*.nii.gz
+*.dcm
+*.pt
+*.pth
+*.ckpt
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+wandb/
+mlruns/
+oasis-scripts/
+BrainFM4Challenges/
+.cursor/
+*.log
+*.aux
+*.out
+*.fdb_latexmk
+Clinical_T1w_Imaging_Cohort_Manifest*.csv
+Docs/
